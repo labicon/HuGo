@@ -1,0 +1,267 @@
+def policy_code(observation, policy_state):
+    # observation layout:
+    # 0:2   root pos world (x, y)
+    # 2     root yaw world
+    # 3:6   root vel local (vx, vy, wz)
+    # 6:9   left ee pos torso
+    # 9:12  right ee pos torso
+    # 12    torso height world
+    # 13:16 box center pos world
+    # 16    box yaw world
+    # 17:27 last action
+
+    device = observation.device
+    num_envs = observation.shape[0]
+
+    if policy_state is None:
+        policy_state = {
+            "needs_init": torch.ones(num_envs, dtype=torch.bool, device=device),
+            "phase": torch.zeros(num_envs, dtype=torch.long, device=device),   # 0 approach, 1 align, 2 clamp, 3 lift
+            "phase_time": torch.zeros(num_envs, device=device),
+            "filtered_yaw_err": torch.zeros(num_envs, device=device),
+            "hold_height": torch.zeros(num_envs, device=device),
+            "side_sign": torch.ones(num_envs, device=device),
+        }
+
+    reset_mask = policy_state["needs_init"]
+    policy_state["phase"][reset_mask] = 0
+    policy_state["phase_time"][reset_mask] = 0.0
+    policy_state["filtered_yaw_err"][reset_mask] = 0.0
+    policy_state["hold_height"][reset_mask] = 1.14
+    policy_state["side_sign"][reset_mask] = 1.0
+    policy_state["needs_init"][reset_mask] = False
+
+    # Parse observation
+    root_xy = observation[:, 0:2]
+    root_yaw = observation[:, 2]
+    root_vel_local = observation[:, 3:6]
+    left_ee = observation[:, 6:9]
+    right_ee = observation[:, 9:12]
+    torso_height = observation[:, 12]
+    box_pos = observation[:, 13:16]
+    box_xy = box_pos[:, 0:2]
+    box_z = box_pos[:, 2]
+    box_yaw = observation[:, 16]
+
+    # Helpers
+    def wrap_to_pi(x):
+        return torch.atan2(torch.sin(x), torch.cos(x))
+
+    def clamp(x, lo, hi):
+        return torch.clamp(x, lo, hi)
+
+    # World -> local box vector
+    rel_world = box_xy - root_xy
+    cy = torch.cos(root_yaw)
+    sy = torch.sin(root_yaw)
+    rel_local_x = cy * rel_world[:, 0] + sy * rel_world[:, 1]
+    rel_local_y = -sy * rel_world[:, 0] + cy * rel_world[:, 1]
+    dist_xy = torch.sqrt(rel_local_x * rel_local_x + rel_local_y * rel_local_y + 1e-8)
+
+    # Choose approach direction along box local side axis so hands can come from opposite sides.
+    # box x-axis is [cos(box_yaw), sin(box_yaw)], box y-axis is [-sin(box_yaw), cos(box_yaw)]
+    # We approach from +box x or -box x, while hands clamp along box y.
+    box_axis_x = torch.stack([torch.cos(box_yaw), torch.sin(box_yaw)], dim=-1)
+    root_to_box_world = box_xy - root_xy
+    side_choice = torch.sign(torch.sum(root_to_box_world * box_axis_x, dim=-1))
+    side_choice = torch.where(side_choice == 0.0, torch.ones_like(side_choice), side_choice)
+
+    # Keep side choice stable per episode unless very early
+    early_mask = policy_state["phase"] <= 1
+    policy_state["side_sign"][early_mask] = side_choice[early_mask]
+    side_sign = policy_state["side_sign"]
+
+    # Desired stand position: offset from box center along box x-axis
+    # Keep root center outside podium and within arm reach.
+    approach_offset = 0.58
+    stand_xy = box_xy - side_sign.unsqueeze(-1) * approach_offset * box_axis_x
+    stand_world = stand_xy - root_xy
+
+    stand_local_x = cy * stand_world[:, 0] + sy * stand_world[:, 1]
+    stand_local_y = -sy * stand_world[:, 0] + cy * stand_world[:, 1]
+    stand_dist = torch.sqrt(stand_local_x * stand_local_x + stand_local_y * stand_local_y + 1e-8)
+
+    # Desired root yaw: face toward box center
+    desired_yaw = torch.atan2(rel_world[:, 1], rel_world[:, 0])
+    yaw_err = wrap_to_pi(desired_yaw - root_yaw)
+    policy_state["filtered_yaw_err"] = 0.8 * policy_state["filtered_yaw_err"] + 0.2 * yaw_err
+    yaw_err_f = policy_state["filtered_yaw_err"]
+
+    # Box top and grasp height
+    box_half = 0.15
+    hand_radius = 0.035
+    top_z = box_z + box_half
+    mid_z = box_z
+    # Put hand center slightly above box center for robust side clamp, but below top
+    grasp_world_z = clamp(mid_z + 0.005, 0.42, 0.90)
+    desired_torso_h = clamp(grasp_world_z + 0.10, 0.62, 0.92)
+
+    # Convert desired grasp height to torso-frame z target
+    grasp_torso_z = clamp(grasp_world_z - torso_height, -0.05, 0.42)
+
+    # Hands wide from sides, then inward
+    # Box half width is 0.15. Hand center should be just outside box side for contact.
+    side_contact_y = 0.15 + hand_radius + 0.015   # ~0.20
+    side_wide_y = side_contact_y + 0.08           # wide approach
+    inward_y = side_contact_y - 0.04              # slightly tighter during lift / hold
+
+    # Forward hand placement: keep in front but reachable
+    # At target stand offset 0.58 and torso origin ~0.05 above pelvis, box will be around x~0.2-0.3 local.
+    hand_x_far = 0.28
+    hand_x_grasp = 0.31
+    hand_x_lift = 0.31
+
+    # Default actions
+    action = torch.zeros(num_envs, 10, device=device)
+
+    prev_phase = policy_state["phase"]
+    phase = prev_phase.clone()
+    policy_state["phase_time"] = policy_state["phase_time"] + 1.0
+
+    # Phase transitions
+    aligned_for_approach = (stand_dist < 0.10) & (torch.abs(yaw_err) < 0.20)
+    close_to_box = (dist_xy < 0.68) & (rel_local_x > 0.10) & (rel_local_x < 0.42) & (torch.abs(rel_local_y) < 0.16)
+    ee_ready_wide = (
+        (torch.abs(left_ee[:, 0] - hand_x_far) < 0.08) &
+        (torch.abs(right_ee[:, 0] - hand_x_far) < 0.08) &
+        (left_ee[:, 1] > 0.20) &
+        (right_ee[:, 1] < -0.20)
+    )
+    torso_ready = torch.abs(torso_height - desired_torso_h) < 0.08
+    align_ex = rel_local_x - 0.28
+    align_ey = rel_local_y
+    near_align_pose = (torch.abs(align_ex) < 0.08) & (torch.abs(align_ey) < 0.10)
+
+    to_align = (prev_phase == 0) & (aligned_for_approach | close_to_box)
+    phase = torch.where(to_align, torch.ones_like(phase), phase)
+
+    align_done = (prev_phase == 1) & (close_to_box | near_align_pose) & torso_ready & ee_ready_wide & (torch.abs(yaw_err) < 0.18)
+    phase = torch.where(align_done, torch.full_like(phase, 2), phase)
+
+    ee_narrow = (
+        (torch.abs(left_ee[:, 1] - side_contact_y) < 0.05) &
+        (torch.abs(right_ee[:, 1] + side_contact_y) < 0.05) &
+        (torch.abs(left_ee[:, 0] - hand_x_grasp) < 0.07) &
+        (torch.abs(right_ee[:, 0] - hand_x_grasp) < 0.07) &
+        (torch.abs(left_ee[:, 2] - grasp_torso_z) < 0.08) &
+        (torch.abs(right_ee[:, 2] - grasp_torso_z) < 0.08)
+    )
+    clamp_done = (prev_phase == 2) & (policy_state["phase_time"] > 12.0) & ee_narrow
+    phase = torch.where(clamp_done, torch.full_like(phase, 3), phase)
+
+    phase_changed = phase != prev_phase
+    policy_state["phase"] = phase
+    policy_state["phase_time"][phase_changed] = 0.0
+
+    # Build action per phase
+    # Base velocity command helper
+    walk_gain_x = 1.2
+    walk_gain_y = 1.6
+    yaw_gain = 1.5
+
+    # Phase 0: navigate to stand position
+    m0 = phase == 0
+    if torch.any(m0):
+        vx = clamp(walk_gain_x * stand_local_x[m0], -0.2, 0.8)
+        vy = clamp(walk_gain_y * stand_local_y[m0], -0.35, 0.35)
+        wz = clamp(yaw_gain * yaw_err_f[m0], -0.8, 0.8)
+
+        action[m0, 0] = vx
+        action[m0, 1] = vy
+        action[m0, 2] = wz
+        action[m0, 3] = hand_x_far
+        action[m0, 4] = side_wide_y
+        action[m0, 5] = clamp(grasp_torso_z[m0], -0.02, 0.35)
+        action[m0, 6] = hand_x_far
+        action[m0, 7] = -side_wide_y
+        action[m0, 8] = clamp(grasp_torso_z[m0], -0.02, 0.35)
+        action[m0, 9] = clamp(desired_torso_h[m0], 0.62, 0.90)
+
+    # Phase 1: fine align near box with wide side approach
+    m1 = phase == 1
+    if torch.any(m1):
+        # Move box center to a preferred local pose in front of torso
+        target_local_x = 0.28
+        target_local_y = 0.0
+        ex = rel_local_x[m1] - target_local_x
+        ey = rel_local_y[m1] - target_local_y
+
+        vx = clamp(1.0 * ex, -0.15, 0.25)
+        vy = clamp(1.4 * ey, -0.20, 0.20)
+        wz = clamp(1.8 * yaw_err_f[m1], -0.5, 0.5)
+
+        action[m1, 0] = vx
+        action[m1, 1] = vy
+        action[m1, 2] = wz
+        action[m1, 3] = hand_x_far
+        action[m1, 4] = side_wide_y
+        action[m1, 5] = clamp(grasp_torso_z[m1], 0.00, 0.38)
+        action[m1, 6] = hand_x_far
+        action[m1, 7] = -side_wide_y
+        action[m1, 8] = clamp(grasp_torso_z[m1], 0.00, 0.38)
+        action[m1, 9] = clamp(desired_torso_h[m1], 0.64, 0.92)
+
+    # Phase 2: clamp from both sides
+    m2 = phase == 2
+    if torch.any(m2):
+        # Hold base nearly still while closing in
+        target_local_x = 0.27
+        target_local_y = 0.0
+        ex = rel_local_x[m2] - target_local_x
+        ey = rel_local_y[m2] - target_local_y
+
+        action[m2, 0] = clamp(0.8 * ex, -0.08, 0.14)
+        action[m2, 1] = clamp(0.8 * ey, -0.08, 0.08)
+        action[m2, 2] = clamp(1.2 * yaw_err_f[m2], -0.25, 0.25)
+
+        # Ramp inward over time
+        alpha = clamp(policy_state["phase_time"][m2] / 14.0, 0.0, 1.0)
+        y_cmd = side_wide_y * (1.0 - alpha) + inward_y * alpha
+        x_cmd = hand_x_far * (1.0 - alpha) + hand_x_grasp * alpha
+
+        action[m2, 3] = x_cmd
+        action[m2, 4] = y_cmd
+        action[m2, 5] = clamp(grasp_torso_z[m2], 0.02, 0.40)
+        action[m2, 6] = x_cmd
+        action[m2, 7] = -y_cmd
+        action[m2, 8] = clamp(grasp_torso_z[m2], 0.02, 0.40)
+        action[m2, 9] = clamp(desired_torso_h[m2], 0.66, 0.92)
+
+    # Phase 3: lift upward while maintaining clamp
+    m3 = phase == 3
+    if torch.any(m3):
+        target_local_x = 0.27
+        target_local_y = 0.0
+        ex = rel_local_x[m3] - target_local_x
+        ey = rel_local_y[m3] - target_local_y
+
+        action[m3, 0] = clamp(0.7 * ex, -0.08, 0.12)
+        action[m3, 1] = clamp(0.7 * ey, -0.06, 0.06)
+        action[m3, 2] = clamp(1.0 * yaw_err_f[m3], -0.20, 0.20)
+
+        # Lift hand z target over time, keep slight inward pressure
+        lift_progress = clamp(policy_state["phase_time"][m3] / 16.0, 0.0, 1.0)
+        target_world_z = grasp_world_z[m3] * (1.0 - lift_progress) + policy_state["hold_height"][m3] * lift_progress
+        lift_torso_z = clamp(target_world_z - torso_height[m3], 0.02, 0.48)
+
+        action[m3, 3] = hand_x_lift
+        action[m3, 4] = inward_y
+        action[m3, 5] = lift_torso_z
+        action[m3, 6] = hand_x_lift
+        action[m3, 7] = -inward_y
+        action[m3, 8] = lift_torso_z
+        action[m3, 9] = clamp(target_world_z - 0.04, 0.72, 0.95)
+
+    # Safety clamps to action bounds
+    action[:, 0] = clamp(action[:, 0], -0.6, 1.0)
+    action[:, 1] = clamp(action[:, 1], -0.5, 0.5)
+    action[:, 2] = clamp(action[:, 2], -1.0, 1.0)
+    action[:, 3] = clamp(action[:, 3], 0.15, 0.45)
+    action[:, 4] = clamp(action[:, 4], 0.10, 0.38)
+    action[:, 5] = clamp(action[:, 5], -0.10, 0.50)
+    action[:, 6] = clamp(action[:, 6], 0.15, 0.45)
+    action[:, 7] = clamp(action[:, 7], -0.38, -0.10)
+    action[:, 8] = clamp(action[:, 8], -0.10, 0.50)
+    action[:, 9] = clamp(action[:, 9], 0.50, 0.95)
+
+    return action, policy_state

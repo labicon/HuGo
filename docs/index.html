@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="description" content="HuGo: LLMs as Whole-Body Policy Code Designers for Humanoid Loco-Manipulation">
+  <meta property="og:title" content="HuGo"/>
+  <meta property="og:description" content="LLMs as Whole-Body Policy Code Designers for Humanoid Loco-Manipulation"/>
+  <meta property="og:url" content="https://iconlab.negarmehr.com/HuGo/"/>
+  <!-- Path to banner image, should be in the path listed below. Optimal dimenssions are 1200X630-->
+  <!-- <meta property="og:image" content="static/images/banner.png" />
+  <meta property="og:image:width" content="1200"/>
+  <meta property="og:image:height" content="630"/> -->
+
+  <meta name="twitter:title" content="HuGo">
+  <meta name="twitter:description" content="LLMs as Whole-Body Policy Code Designers for Humanoid Loco-Manipulation">
+  <!-- <meta name="twitter:image" content="static/images/banner.png">
+  <meta name="twitter:card" content="summary_large_image"> -->
+  <meta name="keywords" content="Humanoid, Loco-Manipulation, Large Language Models, Code as Policies, Whole-Body Control">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <title>HuGo</title>
+  <link rel="icon" type="image/x-icon" href="static/images/iconlab.ico">
+  <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro"
+  rel="stylesheet">
+
+  <link rel="stylesheet" href="static/css/bulma.min.css">
+  <link rel="stylesheet" href="static/css/fontawesome.all.min.css">
+  <link rel="stylesheet"
+  href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
+  <link rel="stylesheet"
+  href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+  <link rel="stylesheet" href="static/css/index.css">
+
+  <script defer src="static/js/fontawesome.all.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+  <script defer src="static/js/index.js"></script>
+</head>
+<body>
+
+  <div class="corner-logo" style="left: 0;">
+    <a href="https://www.berkeley.edu/" target="_blank">
+    <img src="static/images/UC-Berkeley-Seal.png" alt="UC Berkeley" width="160"/>
+    </a>
+  </div>
+
+  <div class="corner-logo" style="right: 0;">
+    <a href="https://iconlab.negarmehr.com/" target="_blank">
+    <img src="static/images/ICON_Lab.png" alt="ICON Lab" width="160"/>
+    </a>
+  </div>
+
+  <section class="hero">
+    <div class="hero-body">
+      <div class="container is-max-desktop">
+        <div class="columns is-centered">
+          <div class="column has-text-centered">
+            <h1 class="title is-2 publication-title">HuGo: LLMs as Whole-Body Policy Code Designers <br>for Humanoid Loco-Manipulation</h1>
+            <div class="is-size-5 publication-authors">
+              <!-- Paper authors -->
+              <span class="author-block">
+                <a href="https://n00nspr1ng.github.io/" target="_blank">Seoyeon Choi</a><sup>1</sup>,
+              </span>
+              <span class="author-block">
+                Shizhao Ye<sup>1,2</sup>,
+              </span>
+              <span class="author-block">
+                Nicholas Bui<sup>1</sup>,
+              </span>
+              <span class="author-block">
+                Aayushi Shrivastava<sup>1</sup>,
+              </span>
+              <span class="author-block">
+                <a href="https://kh-ryu.github.io/" target="_blank">Kanghyun Ryu</a><sup>1</sup>,
+              </span>
+              <br>
+              <span class="author-block">
+                Dhruva Tirumala<sup>3</sup>,
+              </span>
+              <span class="author-block">
+                Markus Wulfmeier<sup>4,&dagger;</sup>,
+              </span>
+              <span class="author-block">
+                <a href="https://negarmehr.com/" target="_blank">Negar Mehr</a><sup>1</sup>
+              </span>
+            </div>
+
+            <div class="is-size-6 publication-authors publication-affiliations">
+              <span class="author-block"><sup>1</sup><a href="https://iconlab.negarmehr.com/" target="_blank">ICON Lab</a> at UC Berkeley,</span>
+              <span class="author-block"><sup>2</sup>ShanghaiTech University,</span>
+              <span class="author-block"><sup>3</sup>Google DeepMind,</span>
+              <span class="author-block"><sup>4</sup>Nomagic</span>
+              <br>
+              <span class="author-block">Preprint</span>
+              <span class="eql-cntrb"><small><br><sup>&dagger;</sup>Work conducted in part while affiliated with Google DeepMind</small></span>
+            </div>
+
+            <div class="column has-text-centered">
+              <div class="publication-links">
+                <!-- ArXiv abstract link: replace href and label once the preprint is out -->
+                <span class="link-block">
+                  <a class="external-link button is-normal is-rounded is-dark" disabled>
+                    <span class="icon">
+                      <i class="ai ai-arxiv"></i>
+                    </span>
+                    <span>arXiv (Coming soon)</span>
+                  </a>
+                </span>
+
+                <!-- Github link -->
+                <span class="link-block">
+                  <a href="https://github.com/labicon/HuGo" target="_blank"
+                  class="external-link button is-normal is-rounded is-dark">
+                    <span class="icon">
+                      <i class="fab fa-github"></i>
+                    </span>
+                    <span>Code (Coming soon)</span>
+                  </a>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+<!-- Paper abstract -->
+<section class="section hero is-light">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Abstract</h2>
+        <div class="content has-text-justified">
+          <p>
+            For humanoids to be useful in everyday environments, they must perform a wide range of tasks that couple locomotion and manipulation.
+            Existing approaches commonly acquire a loco-manipulation policy through reward engineering or demonstrations followed by task-specific training,
+            making it costly to scale to new tasks. In this work, we propose a hierarchical approach to humanoid loco-manipulation that eliminates these per-task requirements.<br><br>
+
+            <b>HuGo</b>, <b>Hu</b>manoid policy code <b>G</b>eneration, uses a Large Language Model (LLM) to generate executable, closed-loop high-level policy code
+            from a task description on top of a frozen low-level whole-body policy. Given the task, observation, and command specifications, the LLM constructs the task logic in code.
+            HuGo then refines the policy from its rollouts using numerical trajectories and selected video frames to produce feedback and targeted code updates.<br><br>
+
+            Across five simulation tasks, using two different low-level policies, HuGo substantially outperforms a high-level reinforcement learning baseline
+            and approaches the performance of a demonstration-based baseline. We achieve this level of performance without task-specific reward design or demonstration collection.
+            We further demonstrate zero-shot transfer of simulation-generated policies to hardware and show that applying the same refinement loop to real-world rollouts
+            can further improve transfer performance without expert demonstrations or policy retraining.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- End paper abstract -->
+
+
+<!-- Method video -->
+<section class="section hero">
+  <div class="container is-max-desktop">
+    <h2 class="title is-3 has-text-centered">Method</h2>
+    <video poster="static/images/method_poster.jpg" id="method-video" controls muted playsinline preload="metadata" width="100%">
+      <source src="static/videos/method.mp4" type="video/mp4">
+    </video>
+  </div>
+</section>
+
+<div class="container is-max-desktop method-overview">
+  <div class="columns is-centered">
+    <div class="column is-four-fifths">
+      <div class="content has-text-left">
+        <p><strong>Overview of HuGo.</strong> HuGo generates closed-loop policy code for humanoid loco-manipulation from a task description,
+          without expert demonstrations, reference motions, or reward design.</p>
+        <ol>
+          <li><strong>Closed-loop execution</strong> -- The generated code reads the observation at every timestep and outputs a high-level command:
+            planar locomotion, left and right end-effector positions, and body height. A frozen low-level whole-body policy converts this command into joint actions.</li>
+          <li><strong>Policy code generation</strong> -- Given only the task description, robot information, and the observation and command specifications,
+            the LLM writes the task logic itself: where to stand, where to reach, and when to transition between stages. No example policies or skill libraries are provided.</li>
+          <li><strong>Evaluation and refinement</strong> -- The LLM diagnoses the policy's rollouts from numerical trajectories and selected video frames,
+            and proposes a code diff: a localized update to the current policy rather than a full regeneration. Because it only needs rollouts, the same loop runs in simulation and on hardware.</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- End method video -->
+
+
+<!-- Simulation results -->
+<section class="section hero is-light">
+  <div class="container is-max-desktop sim-container">
+    <h2 class="title is-3 has-text-centered">Simulation Results</h2>
+    <div class="content has-text-justified">
+      <p>
+        Rollouts of policy code generated and refined by HuGo on a Unitree G1 in IsaacSim. Every policy is obtained from a task description alone.
+        The initial poses of the humanoid, objects, and goals are randomized, so the generated code must adapt its navigation path, approach pose, and command timing.
+        Select a task to watch its rollouts and read the policy code the LLM wrote.
+      </p>
+    </div>
+
+    <h3 class="title is-5">Five-task suite</h3>
+    <div class="task-viewer" data-group="suite">
+      <div class="tabs is-toggle is-centered is-small">
+        <ul>
+          <li class="is-active" data-task="lgp"><a>Low Gate Passing</a></li>
+          <li data-task="ngp"><a>Narrow Gate Passing</a></li>
+          <li data-task="pbt"><a>Push Button</a></li>
+          <li data-task="pbx"><a>Push Box</a></li>
+          <li data-task="lbx"><a>Lift Box</a></li>
+        </ul>
+      </div>
+
+      <div class="task-panel is-active" data-task="lgp">
+        <p class="task-desc">The humanoid must pass through two low gates by lowering its body height.</p>
+        <div class="video-strip">
+          <figure class="strip-item">
+            <video muted loop playsinline preload="metadata" src="static/simulation/low_gate_passing_1/ep_0.mp4"></video>
+            <figcaption>Episode 1</figcaption>
+          </figure>
+          <figure class="strip-item">
+            <video muted loop playsinline preload="metadata" src="static/simulation/low_gate_passing_1/ep_1.mp4"></video>
+            <figcaption>Episode 2</figcaption>
+          </figure>
+          <figure class="strip-item">
+            <video muted loop playsinline preload="metadata" src="static/simulation/low_gate_passing_1/ep_2.mp4"></video>
+            <figcaption>Episode 3</figcaption>
+          </figure>
+        </div>
+        <details class="policy-code" data-src="static/simulation/low_gate_passing_1/policy_code.txt">
+          <summary>Show generated policy code</summary>
+          <pre><code class="language-python">Loading...</code></pre>
+        </details>
+      </div>
+      <div class="task-panel" data-task="ngp">
+        <p class="task-desc">The humanoid must pass through two narrow gates by turning its body sideways.</p>
+        <div class="video-strip">
+          <figure class="strip-item">
+            <video muted loop playsinline preload="none" src="static/simulation/narrow_gate_passing_1/ep_0.mp4"></video>
+            <figcaption>Episode 1</figcaption>
+          </figure>
+          <figure class="strip-item">
+            <video muted loop playsinline preload="none" src="static/simulation/narrow_gate_passing_1/ep_1.mp4"></video>
+            <figcaption>Episode 2</figcaption>
+          </figure>
+          <figure class="strip-item">
+            <video muted loop playsinline preload="none" src="static/simulation/narrow_gate_passing_1/ep_2.mp4"></video>
+            <figcaption>Episode 3</figcaption>
+          </figure>
+        </div>
+        <details class="policy-code" data-src="static/simulation/narrow_gate_passing_1/policy_code.txt">
+          <summary>Show generated policy code</summary>
+          <pre><code class="language-python">Loading...</code></pre>
+        </details>
+      </div>
+      <div class="task-panel" data-task="pbt">
+        <p class="task-desc">The humanoid must approach a button and press it using one of its end-effectors.</p>
+        <div class="video-strip">
+          <figure class="strip-item">
+            <video muted loop playsinline preload="none" src="static/simulation/push_button_2/ep_0.mp4"></video>
+            <figcaption>Episode 1</figcaption>
+          </figure>
+          <figure class="strip-item">
+            <video muted loop playsinline preload="none" src="static/simulation/push_button_2/ep_1.mp4"></video>
+            <figcaption>Episode 2</figcaption>
+          </figure>
+          <figure class="strip-item">
+            <video muted loop playsinline preload="none" src="static/simulation/push_button_2/ep_2.mp4"></video>
+            <figcaption>Episode 3</figcaption>
+          </figure>
+        </div>
+        <details class="policy-code" data-src="static/simulation/push_button_2/policy_code.txt">
+          <summary>Show generated policy code</summary>
+          <pre><code class="language-python">Loading...</code></pre>
+        </details>
+      </div>
+      <div class="task-panel" data-task="pbx">
+        <p class="task-desc">The humanoid must approach a box, push it to within 10 cm of a target, and hold it there for one second.</p>
+        <div class="video-strip">
+          <figure class="strip-item">
+            <video muted loop playsinline preload="none" src="static/simulation/push_box_1/ep_0.mp4"></video>
+            <figcaption>Episode 1</figcaption>
+          </figure>
+          <figure class="strip-item">
+            <video muted loop playsinline preload="none" src="static/simulation/push_box_1/ep_1.mp4"></video>
+            <figcaption>Episode 2</figcaption>
+          </figure>
+          <figure class="strip-item">
+            <video muted loop playsinline preload="none" src="static/simulation/push_box_1/ep_2.mp4"></video>
+            <figcaption>Episode 3</figcaption>
+          </figure>
+        </div>
+        <details class="policy-code" data-src="static/simulation/push_box_1/policy_code.txt">
+          <summary>Show generated policy code</summary>
+          <pre><code class="language-python">Loading...</code></pre>
+        </details>
+      </div>
+      <div class="task-panel" data-task="lbx">
+        <p class="task-desc">The humanoid must approach a box resting on a podium, grasp it, and lift it above 1.0 m.</p>
+        <div class="video-strip">
+          <figure class="strip-item">
+            <video muted loop playsinline preload="none" src="static/simulation/lift_box_1/ep_0.mp4"></video>
+            <figcaption>Episode 1</figcaption>
+          </figure>
+          <figure class="strip-item">
+            <video muted loop playsinline preload="none" src="static/simulation/lift_box_1/ep_1.mp4"></video>
+            <figcaption>Episode 2</figcaption>
+          </figure>
+          <figure class="strip-item">
+            <video muted loop playsinline preload="none" src="static/simulation/lift_box_1/ep_2.mp4"></video>
+            <figcaption>Episode 3</figcaption>
+          </figure>
+        </div>
+        <details class="policy-code" data-src="static/simulation/lift_box_1/policy_code.txt">
+          <summary>Show generated policy code</summary>
+          <pre><code class="language-python">Loading...</code></pre>
+        </details>
+      </div>
+    </div>
+
+    <h3 class="title is-5" style="margin-top: 3rem;">Tasks from HDMI</h3>
+    <div class="content has-text-justified">
+      <p>
+        We also compare against HDMI, which trains a policy per task by imitating reference motions extracted from human videos,
+        on two of its tasks. HuGo generates these policies from a task description without any demonstrations.
+        Each video below is a different generated policy.
+      </p>
+    </div>
+    <div class="task-viewer" data-group="hdmi">
+      <div class="tabs is-toggle is-centered is-small">
+        <ul>
+          <li class="is-active" data-task="pdh"><a>Push Door with Hand</a></li>
+          <li data-task="cpb"><a>Carry and Place Bread Box</a></li>
+        </ul>
+      </div>
+
+      <div class="task-panel is-active" data-task="pdh">
+        <p class="task-desc">The humanoid must approach a door, push it open, and walk through.</p>
+        <div class="video-strip">
+          <figure class="strip-item">
+            <video muted loop playsinline preload="metadata" src="static/simulation/hdmi_push_door_hand_1/ep_0.mp4"></video>
+            <figcaption>Policy 1</figcaption>
+            <details class="policy-code" data-src="static/simulation/hdmi_push_door_hand_1/policy_code.txt">
+                <summary>Policy 1 code</summary>
+                <pre><code class="language-python">Loading...</code></pre>
+              </details>
+          </figure>
+          <figure class="strip-item">
+            <video muted loop playsinline preload="metadata" src="static/simulation/hdmi_push_door_hand_2/ep_0.mp4"></video>
+            <figcaption>Policy 2</figcaption>
+            <details class="policy-code" data-src="static/simulation/hdmi_push_door_hand_2/policy_code.txt">
+                <summary>Policy 2 code</summary>
+                <pre><code class="language-python">Loading...</code></pre>
+              </details>
+          </figure>
+        </div>
+      </div>
+      <div class="task-panel" data-task="cpb">
+        <p class="task-desc">The humanoid must grasp a bread box, carry it, and place it at a target.</p>
+        <div class="video-strip">
+          <figure class="strip-item">
+            <video muted loop playsinline preload="none" src="static/simulation/hdmi_carry_and_place_bread_box_1/ep_0.mp4"></video>
+            <figcaption>Policy 1</figcaption>
+            <details class="policy-code" data-src="static/simulation/hdmi_carry_and_place_bread_box_1/policy_code.txt">
+                <summary>Policy 1 code</summary>
+                <pre><code class="language-python">Loading...</code></pre>
+              </details>
+          </figure>
+          <figure class="strip-item">
+            <video muted loop playsinline preload="none" src="static/simulation/hdmi_carry_and_place_bread_box_2/ep_0.mp4"></video>
+            <figcaption>Policy 2</figcaption>
+            <details class="policy-code" data-src="static/simulation/hdmi_carry_and_place_bread_box_2/policy_code.txt">
+                <summary>Policy 2 code</summary>
+                <pre><code class="language-python">Loading...</code></pre>
+              </details>
+          </figure>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- End simulation results -->
+
+
+<!--BibTex citation -->
+<section class="section" id="BibTeX">
+  <div class="container is-max-desktop content">
+    <h2 class="title">BibTeX</h2>
+    <!-- TODO: replace with the arXiv entry once available -->
+    <pre><code>@article{choi2026hugo,
+  title={HuGo: LLMs as Whole-Body Policy Code Designers for Humanoid Loco-Manipulation},
+  author={Choi, Seoyeon and Ye, Shizhao and Bui, Nicholas and Shrivastava, Aayushi and Ryu, Kanghyun and Tirumala, Dhruva and Wulfmeier, Markus and Mehr, Negar},
+  year={2026}
+}</code></pre>
+  </div>
+</section>
+<!--End BibTex citation -->
+
+
+<footer class="footer">
+  <div class="container">
+    <div class="columns is-centered">
+      <div class="column is-8">
+        <div class="content">
+          <p>
+            This page was built using the <a href="https://github.com/eliahuhorwitz/Academic-project-page-template" target="_blank">Academic Project Page Template</a> which was adopted from the <a href="https://nerfies.github.io" target="_blank">Nerfies</a> project page.
+            You are free to borrow the source code of this website, we just ask that you link back to this page in the footer. <br> This website is licensed under a <a rel="license"  href="http://creativecommons.org/licenses/by-sa/4.0/" target="_blank">Creative
+            Commons Attribution-ShareAlike 4.0 International License</a>.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

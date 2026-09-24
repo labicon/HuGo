@@ -1,0 +1,220 @@
+def policy_code(observation, policy_state):
+    num_envs = observation.shape[0]
+    device = observation.device
+    dtype = observation.dtype
+
+    if policy_state is None:
+        policy_state = {
+            "needs_init": torch.ones(num_envs, dtype=torch.bool, device=device),
+            "mode": torch.zeros(num_envs, dtype=torch.long, device=device),  # 0: approach behind box, 1: align to push, 2: push
+            "push_side_sign": torch.ones(num_envs, dtype=dtype, device=device),  # +1 left side of push line, -1 right side
+            "smoothed_yaw_err": torch.zeros(num_envs, dtype=dtype, device=device),
+            "smoothed_speed": torch.zeros(num_envs, dtype=dtype, device=device),
+        }
+
+    reset_mask = policy_state["needs_init"]
+    if torch.any(reset_mask):
+        policy_state["mode"][reset_mask] = 0
+        policy_state["push_side_sign"][reset_mask] = 1.0
+        policy_state["smoothed_yaw_err"][reset_mask] = 0.0
+        policy_state["smoothed_speed"][reset_mask] = 0.0
+    policy_state["needs_init"][reset_mask] = False
+
+    def wrap_to_pi(x):
+        return (x + math.pi) % (2.0 * math.pi) - math.pi
+
+    def clamp(x, lo, hi):
+        return torch.clamp(x, lo, hi)
+
+    # Parse observation
+    root_xy = observation[:, 0:2]
+    root_yaw = observation[:, 2]
+    root_vel_local = observation[:, 3:6]
+    left_ee_obs = observation[:, 6:9]
+    right_ee_obs = observation[:, 9:12]
+    torso_height_obs = observation[:, 12]
+    box_pose = observation[:, 13:16]
+    box_xy = box_pose[:, 0:2]
+    box_yaw = box_pose[:, 2]
+    target_xy = observation[:, 24:26]
+    last_action = observation[:, 26:36]
+
+    # World geometry
+    box_to_target = target_xy - box_xy
+    box_to_target_dist = torch.norm(box_to_target, dim=1)
+    push_dir = box_to_target / torch.clamp(box_to_target_dist.unsqueeze(1), min=1e-6)
+
+    # Perpendicular to push direction
+    push_left = torch.stack([-push_dir[:, 1], push_dir[:, 0]], dim=1)
+
+    # Choose a side for approaching behind the box; keep memory for consistency
+    root_to_box = box_xy - root_xy
+    lateral_side = torch.sum(root_to_box * push_left, dim=1)
+    side_choice = torch.where(lateral_side >= 0.0, torch.ones_like(lateral_side), -torch.ones_like(lateral_side))
+    near_reset_or_unset = reset_mask
+    if torch.any(near_reset_or_unset):
+        policy_state["push_side_sign"][near_reset_or_unset] = side_choice[near_reset_or_unset]
+    side_sign = policy_state["push_side_sign"]
+
+    # Desired navigation points
+    behind_offset = 1.35
+    align_offset = 0.72
+    push_offset = 0.66
+
+    behind_point = box_xy - push_dir * behind_offset + push_left * (0.32 * side_sign).unsqueeze(1)
+    align_point = box_xy - push_dir * align_offset
+    push_point = box_xy - push_dir * push_offset
+
+    # Distances to nav points
+    dist_to_behind = torch.norm(behind_point - root_xy, dim=1)
+    dist_to_align = torch.norm(align_point - root_xy, dim=1)
+    dist_to_push = torch.norm(push_point - root_xy, dim=1)
+
+    # Facing targets
+    yaw_to_box = torch.atan2(box_xy[:, 1] - root_xy[:, 1], box_xy[:, 0] - root_xy[:, 0])
+    yaw_to_align = torch.atan2(align_point[:, 1] - root_xy[:, 1], align_point[:, 0] - root_xy[:, 0])
+    yaw_push = torch.atan2(push_dir[:, 1], push_dir[:, 0])
+
+    yaw_err_box = wrap_to_pi(yaw_to_box - root_yaw)
+    yaw_err_align = wrap_to_pi(yaw_to_align - root_yaw)
+    yaw_err_push = wrap_to_pi(yaw_push - root_yaw)
+
+    # Mode transitions with hysteresis
+    mode = policy_state["mode"]
+
+    box_at_target = box_to_target_dist < 0.10
+    well_behind = dist_to_behind < 0.40
+    well_aligned = dist_to_align < 0.24
+    facing_push_good = torch.abs(yaw_err_push) < 0.28
+    push_ready = (dist_to_push < 0.40) & facing_push_good
+
+    mode = torch.where(box_at_target, torch.zeros_like(mode), mode)
+    mode = torch.where((mode == 0) & well_behind, torch.ones_like(mode), mode)
+    mode = torch.where((mode == 1) & push_ready, torch.full_like(mode, 2), mode)
+    mode = torch.where((mode == 2) & ((torch.abs(yaw_err_push) > 0.55) | (dist_to_push > 0.52)), torch.ones_like(mode), mode)
+    mode = torch.where((mode == 1) & (dist_to_behind > 0.65), torch.zeros_like(mode), mode)
+
+    policy_state["mode"] = mode
+
+    # Navigation target by mode
+    nav_target = behind_point.clone()
+    nav_target = torch.where((mode == 1).unsqueeze(1), align_point, nav_target)
+    nav_target = torch.where((mode == 2).unsqueeze(1), push_point, nav_target)
+
+    desired_yaw = yaw_to_align
+    desired_yaw = torch.where(mode == 0, yaw_to_align, desired_yaw)
+    desired_yaw = torch.where(mode == 1, yaw_push, desired_yaw)
+    desired_yaw = torch.where(mode == 2, yaw_push, desired_yaw)
+    desired_yaw = torch.where(box_at_target, root_yaw, desired_yaw)
+
+    yaw_err = wrap_to_pi(desired_yaw - root_yaw)
+    policy_state["smoothed_yaw_err"] = 0.8 * policy_state["smoothed_yaw_err"] + 0.2 * yaw_err
+    yaw_err_s = policy_state["smoothed_yaw_err"]
+
+    # Convert navigation vector to local frame
+    nav_vec_world = nav_target - root_xy
+    cos_yaw = torch.cos(root_yaw)
+    sin_yaw = torch.sin(root_yaw)
+    nav_x_local = cos_yaw * nav_vec_world[:, 0] + sin_yaw * nav_vec_world[:, 1]
+    nav_y_local = -sin_yaw * nav_vec_world[:, 0] + cos_yaw * nav_vec_world[:, 1]
+
+    nav_dist = torch.norm(nav_vec_world, dim=1)
+
+    # Simple obstacle-aware bias for mode 0:
+    # if the box is ahead while still far from the behind point, go around the remembered side
+    box_vec_world = box_xy - root_xy
+    box_x_local = cos_yaw * box_vec_world[:, 0] + sin_yaw * box_vec_world[:, 1]
+    box_dist = torch.norm(box_vec_world, dim=1)
+    avoid_mask = (mode == 0) & (dist_to_behind > 0.55) & (box_x_local > 0.0) & (box_dist < 1.7)
+    avoid_lat = side_sign * (0.28 + 0.32 * torch.clamp((1.7 - box_dist) / 1.1, 0.0, 1.0))
+    nav_y_local = torch.where(avoid_mask, nav_y_local + avoid_lat, nav_y_local)
+    nav_x_local = torch.where(avoid_mask, torch.minimum(nav_x_local, torch.full_like(nav_x_local, 0.35)), nav_x_local)
+
+    # Base velocity control
+    yaw_scale = torch.clamp(1.0 - 0.7 * torch.abs(yaw_err_s), 0.15, 1.0)
+    forward_cmd = 1.2 * nav_x_local
+    lateral_cmd = 1.8 * nav_y_local
+    turn_cmd = 1.8 * yaw_err_s
+
+    # Mode-specific behavior
+    forward_cmd = torch.where(mode == 0, 0.65 * forward_cmd * yaw_scale, forward_cmd)
+    lateral_cmd = torch.where(mode == 0, 0.95 * lateral_cmd, lateral_cmd)
+    turn_cmd = torch.where(mode == 0, 2.0 * yaw_err_s, turn_cmd)
+
+    forward_cmd = torch.where(mode == 1, 0.72 * nav_x_local * yaw_scale, forward_cmd)
+    lateral_cmd = torch.where(mode == 1, 1.35 * nav_y_local, lateral_cmd)
+    turn_cmd = torch.where(mode == 1, 1.8 * yaw_err_s, turn_cmd)
+
+    # In push mode, mostly move forward in facing direction with reduced strafing
+    push_forward = 0.45 + 0.8 * torch.clamp(box_to_target_dist - 0.10, min=0.0, max=0.7)
+    forward_cmd = torch.where(mode == 2, push_forward * yaw_scale + 0.4 * nav_x_local, forward_cmd)
+    lateral_cmd = torch.where(mode == 2, 0.75 * nav_y_local, lateral_cmd)
+    turn_cmd = torch.where(mode == 2, 1.4 * yaw_err_s, turn_cmd)
+
+    # Stop when succeeded
+    forward_cmd = torch.where(box_at_target, torch.zeros_like(forward_cmd), forward_cmd)
+    lateral_cmd = torch.where(box_at_target, torch.zeros_like(lateral_cmd), lateral_cmd)
+    turn_cmd = torch.where(box_at_target, torch.zeros_like(turn_cmd), turn_cmd)
+
+    # Smooth base speed a bit
+    desired_speed = torch.sqrt(torch.clamp(forward_cmd ** 2 + lateral_cmd ** 2, min=0.0))
+    policy_state["smoothed_speed"] = 0.7 * policy_state["smoothed_speed"] + 0.3 * desired_speed
+    speed_scale = torch.clamp((policy_state["smoothed_speed"] + 1e-4) / (desired_speed + 1e-4), 0.6, 1.2)
+
+    forward_cmd = forward_cmd * speed_scale
+    lateral_cmd = lateral_cmd * speed_scale
+
+    # Clip base actions
+    root_vx = clamp(forward_cmd, -0.6, 1.0)
+    root_vy = clamp(lateral_cmd, -0.5, 0.5)
+    root_wz = clamp(turn_cmd, -1.0, 1.0)
+
+    # Arm posture:
+    # - travel posture while approaching/alignment
+    # - forward pushing posture once in push mode
+    travel_left = torch.tensor([0.22, 0.22, 0.05], device=device, dtype=dtype).unsqueeze(0).repeat(num_envs, 1)
+    travel_right = torch.tensor([0.22, -0.22, 0.05], device=device, dtype=dtype).unsqueeze(0).repeat(num_envs, 1)
+
+    # Push posture: hands forward and apart, around chest height, good for contacting box face
+    push_left_hand = torch.tensor([0.39, 0.18, 0.22], device=device, dtype=dtype).unsqueeze(0).repeat(num_envs, 1)
+    push_right_hand = torch.tensor([0.39, -0.18, 0.22], device=device, dtype=dtype).unsqueeze(0).repeat(num_envs, 1)
+
+    left_hand = torch.where((mode == 2).unsqueeze(1), push_left_hand, travel_left)
+    right_hand = torch.where((mode == 2).unsqueeze(1), push_right_hand, travel_right)
+
+    # If very close to goal, relax arms slightly
+    left_goal = torch.tensor([0.20, 0.20, 0.08], device=device, dtype=dtype).unsqueeze(0).repeat(num_envs, 1)
+    right_goal = torch.tensor([0.20, -0.20, 0.08], device=device, dtype=dtype).unsqueeze(0).repeat(num_envs, 1)
+    left_hand = torch.where(box_at_target.unsqueeze(1), left_goal, left_hand)
+    right_hand = torch.where(box_at_target.unsqueeze(1), right_goal, right_hand)
+
+    # Torso height
+    torso_h = torch.full((num_envs,), 0.88, device=device, dtype=dtype)
+    torso_h = torch.where(mode == 2, torch.full_like(torso_h, 0.86), torso_h)
+    torso_h = torch.where(box_at_target, torch.full_like(torso_h, 0.90), torso_h)
+
+    # Final clamp for arm limits
+    left_x = clamp(left_hand[:, 0], 0.15, 0.45)
+    left_y = clamp(left_hand[:, 1], 0.10, 0.38)
+    left_z = clamp(left_hand[:, 2], -0.10, 0.50)
+
+    right_x = clamp(right_hand[:, 0], 0.15, 0.45)
+    right_y = clamp(right_hand[:, 1], -0.38, -0.10)
+    right_z = clamp(right_hand[:, 2], -0.10, 0.50)
+
+    torso_h = clamp(torso_h, 0.5, 0.95)
+
+    action = torch.stack([
+        root_vx,
+        root_vy,
+        root_wz,
+        left_x,
+        left_y,
+        left_z,
+        right_x,
+        right_y,
+        right_z,
+        torso_h
+    ], dim=1)
+
+    return action, policy_state

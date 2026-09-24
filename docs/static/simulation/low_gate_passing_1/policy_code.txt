@@ -1,0 +1,198 @@
+def policy_code(observation, policy_state):
+    # Observation layout:
+    # 0:2   root position (x, y) in world
+    # 2     root yaw in world
+    # 3:6   root velocity (vx_local, vy_local, wz_local)
+    # 6:9   left ee pos in torso frame
+    # 9:12  right ee pos in torso frame
+    # 12    torso height
+    # 13    gate1_y
+    # 14    gate2_y
+    # 15:25 last action
+
+    device = observation.device
+    num_envs = observation.shape[0]
+
+    if policy_state is None:
+        policy_state = {
+            "needs_init": torch.ones(num_envs, dtype=torch.bool, device=device),
+            "phase": torch.zeros(num_envs, dtype=torch.long, device=device),   # 0->gate1, 1->gate2, 2->goal
+            "target_y": torch.zeros(num_envs, device=device),
+            "filtered_yaw_err": torch.zeros(num_envs, device=device),
+            "crouch_hold": torch.zeros(num_envs, device=device),
+        }
+
+    reset_mask = policy_state["needs_init"]
+
+    root_x = observation[:, 0]
+    root_y = observation[:, 1]
+    yaw = observation[:, 2]
+    vx_local = observation[:, 3]
+    vy_local = observation[:, 4]
+    torso_height_obs = observation[:, 12]
+    gate1_y = observation[:, 13]
+    gate2_y = observation[:, 14]
+
+    # Initialize/reset per-env state
+    if reset_mask.any():
+        policy_state["phase"][reset_mask] = 0
+        policy_state["target_y"][reset_mask] = gate1_y[reset_mask]
+        policy_state["filtered_yaw_err"][reset_mask] = 0.0
+        policy_state["crouch_hold"][reset_mask] = 0.0
+
+    policy_state["needs_init"][reset_mask] = False
+
+    phase = policy_state["phase"]
+
+    # Phase transitions based on progress in x
+    passed_gate1 = root_x > -1.15
+    passed_gate2 = root_x > 2.15
+
+    to_phase1 = (phase == 0) & passed_gate1
+    to_phase2 = (phase == 1) & passed_gate2
+
+    phase = torch.where(to_phase1, torch.ones_like(phase), phase)
+    phase = torch.where(to_phase2, torch.full_like(phase, 2), phase)
+
+    policy_state["phase"] = phase
+
+    # Current navigation target
+    gate_x = torch.where(
+        phase == 0,
+        torch.full_like(root_x, -1.67),
+        torch.where(phase == 1, torch.full_like(root_x, 1.67), torch.full_like(root_x, 4.5))
+    )
+
+    target_y = torch.where(
+        phase == 0,
+        gate1_y,
+        torch.where(phase == 1, gate2_y, torch.zeros_like(root_y))
+    )
+    policy_state["target_y"] = target_y
+
+    dx = gate_x - root_x
+    dy = target_y - root_y
+
+    # Desired heading:
+    # - Far before a gate, steer mostly toward a staging point offset in x and target y.
+    # - Near the gate, face east and use lateral velocity to align precisely with opening.
+    near_gate = ((phase == 0) & (torch.abs(root_x + 1.67) < 0.9)) | ((phase == 1) & (torch.abs(root_x - 1.67) < 0.9))
+    final_run = phase == 2
+
+    desired_heading = torch.where(
+        near_gate | final_run,
+        torch.zeros_like(yaw),
+        torch.atan2(dy, torch.clamp(dx, min=0.05))
+    )
+
+    yaw_err = desired_heading - yaw
+    yaw_err = torch.atan2(torch.sin(yaw_err), torch.cos(yaw_err))
+
+    # Smooth yaw error a bit
+    filtered_yaw_err = 0.7 * policy_state["filtered_yaw_err"] + 0.3 * yaw_err
+    policy_state["filtered_yaw_err"] = filtered_yaw_err
+
+    # Crouch logic around gate crossing
+    gate_dist_x = torch.where(
+        phase == 0,
+        torch.abs(root_x + 1.67),
+        torch.where(phase == 1, torch.abs(root_x - 1.67), torch.full_like(root_x, 10.0))
+    )
+    need_crouch_zone = gate_dist_x < 0.85
+    crouch_hold = torch.where(
+        need_crouch_zone,
+        torch.full_like(policy_state["crouch_hold"], 1.0),
+        torch.clamp(policy_state["crouch_hold"] - 0.1, min=0.0)
+    )
+    policy_state["crouch_hold"] = crouch_hold
+    crouching = crouch_hold > 0.0
+
+    # Velocity command design:
+    # Near gates, prioritize straight east motion with accurate y-centering and low yaw error.
+    # Else, move toward target with moderate speed.
+    y_err = target_y - root_y
+
+    vx_cmd = torch.where(
+        near_gate,
+        0.55 - 0.20 * torch.abs(y_err) - 0.10 * torch.abs(filtered_yaw_err),
+        torch.where(final_run, 0.8 * torch.ones_like(root_x), 0.65 * torch.ones_like(root_x))
+    )
+
+    # Slow down close to final goal
+    goal_dx = 4.5 - root_x
+    vx_cmd = torch.where(final_run & (goal_dx < 1.0), 0.35 + 0.45 * torch.clamp(goal_dx, min=0.0), vx_cmd)
+
+    # Lateral control in local frame:
+    # when near gate, use direct centering aggressively
+    vy_cmd = torch.where(
+        near_gate,
+        1.6 * y_err,
+        0.9 * y_err
+    )
+
+    # If badly misaligned in yaw, reduce forward speed and allow correction
+    bad_yaw = torch.abs(filtered_yaw_err) > 0.45
+    vx_cmd = torch.where(bad_yaw & (~near_gate), 0.35 * vx_cmd, vx_cmd)
+
+    wz_cmd = 1.8 * filtered_yaw_err + 0.15 * (-observation[:, 5])
+
+    # Extra safety: if very close to a gate but laterally off-center, slow more
+    very_near_gate = gate_dist_x < 0.35
+    offcenter = torch.abs(y_err) > 0.18
+    vx_cmd = torch.where(very_near_gate & offcenter, torch.full_like(vx_cmd, 0.18), vx_cmd)
+
+    # Stop at end of room
+    at_goal = root_x > 4.35
+    vx_cmd = torch.where(at_goal, torch.zeros_like(vx_cmd), vx_cmd)
+    vy_cmd = torch.where(at_goal, torch.zeros_like(vy_cmd), vy_cmd)
+    wz_cmd = torch.where(at_goal, -0.8 * yaw, wz_cmd)
+
+    # Torso height: crouch under lintel near gates
+    torso_height_cmd = torch.where(crouching, torch.full_like(root_x, 0.62), torch.full_like(root_x, 0.9))
+
+    # Arm posture:
+    # Keep arms forward but tucked inward and lower during gate passage to reduce envelope.
+    left_x = torch.where(crouching, torch.full_like(root_x, 0.20), torch.full_like(root_x, 0.24))
+    left_y = torch.where(crouching, torch.full_like(root_x, 0.16), torch.full_like(root_x, 0.20))
+    left_z = torch.where(crouching, torch.full_like(root_x, 0.02), torch.full_like(root_x, 0.10))
+
+    right_x = torch.where(crouching, torch.full_like(root_x, 0.20), torch.full_like(root_x, 0.24))
+    right_y = torch.where(crouching, torch.full_like(root_x, -0.16), torch.full_like(root_x, -0.20))
+    right_z = torch.where(crouching, torch.full_like(root_x, 0.02), torch.full_like(root_x, 0.10))
+
+    # Small damping using current local velocities
+    vx_cmd = vx_cmd - 0.10 * torch.clamp(vx_local - vx_cmd, min=-1.0, max=1.0)
+    vy_cmd = vy_cmd - 0.12 * torch.clamp(vy_local - vy_cmd, min=-1.0, max=1.0)
+
+    # Clamp to action bounds
+    vx_cmd = torch.clamp(vx_cmd, -0.6, 1.0)
+    vy_cmd = torch.clamp(vy_cmd, -0.5, 0.5)
+    wz_cmd = torch.clamp(wz_cmd, -1.0, 1.0)
+
+    left_x = torch.clamp(left_x, 0.15, 0.45)
+    left_y = torch.clamp(left_y, 0.10, 0.38)
+    left_z = torch.clamp(left_z, -0.1, 0.5)
+
+    right_x = torch.clamp(right_x, 0.15, 0.45)
+    right_y = torch.clamp(right_y, -0.38, -0.1)
+    right_z = torch.clamp(right_z, -0.1, 0.5)
+
+    torso_height_cmd = torch.clamp(torso_height_cmd, 0.5, 0.95)
+
+    action = torch.stack(
+        [
+            vx_cmd,
+            vy_cmd,
+            wz_cmd,
+            left_x,
+            left_y,
+            left_z,
+            right_x,
+            right_y,
+            right_z,
+            torso_height_cmd,
+        ],
+        dim=-1,
+    )
+
+    return action, policy_state

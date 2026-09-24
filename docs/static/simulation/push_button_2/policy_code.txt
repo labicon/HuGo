@@ -1,0 +1,347 @@
+def policy_code(observation, policy_state):
+    num_envs = observation.shape[0]
+    device = observation.device
+    dtype = observation.dtype
+
+    if policy_state is None:
+        policy_state = {
+            "needs_init": torch.ones(num_envs, dtype=torch.bool, device=device),
+            "phase": torch.zeros(num_envs, dtype=torch.long, device=device),  # 0: navigate, 1: align, 2: press
+            "active_arm": torch.zeros(num_envs, dtype=torch.long, device=device),  # 0: left, 1: right
+            "press_progress": torch.zeros(num_envs, dtype=dtype, device=device),
+            "stable_counter": torch.zeros(num_envs, dtype=torch.long, device=device),
+            "prev_target_x": torch.zeros(num_envs, dtype=dtype, device=device),
+            "prev_target_y": torch.zeros(num_envs, dtype=dtype, device=device),
+        }
+
+    reset_mask = policy_state["needs_init"]
+    policy_state["phase"][reset_mask] = 0
+    policy_state["active_arm"][reset_mask] = 0
+    policy_state["press_progress"][reset_mask] = 0.0
+    policy_state["stable_counter"][reset_mask] = 0
+    policy_state["prev_target_x"][reset_mask] = 0.0
+    policy_state["prev_target_y"][reset_mask] = 0.0
+    policy_state["needs_init"][reset_mask] = False
+
+    # ----------------------------
+    # Unpack observation
+    # ----------------------------
+    root_x = observation[:, 0]
+    root_y = observation[:, 1]
+    root_yaw = observation[:, 2]
+
+    root_vx_local = observation[:, 3]
+    root_vy_local = observation[:, 4]
+    root_wz = observation[:, 5]
+
+    left_ee = observation[:, 6:9]
+    right_ee = observation[:, 9:12]
+
+    torso_height_obs = observation[:, 12]
+
+    button_pos = observation[:, 13:16]      # world frame
+    button_dir = observation[:, 16:18]      # world frame outward normal, unit vector
+
+    # last action = observation[:, 18:28]
+
+    root_pos = observation[:, 0:2]
+    root_xy = root_pos
+    button_xy = button_pos[:, 0:2]
+    button_z = button_pos[:, 2]
+
+    # ----------------------------
+    # Helpers
+    # ----------------------------
+    def clamp(x, lo, hi):
+        return torch.clamp(x, lo, hi)
+
+    def wrap_to_pi(x):
+        return torch.atan2(torch.sin(x), torch.cos(x))
+
+    def world_to_local(vec_world, yaw):
+        c = torch.cos(yaw)
+        s = torch.sin(yaw)
+        x = c * vec_world[:, 0] + s * vec_world[:, 1]
+        y = -s * vec_world[:, 0] + c * vec_world[:, 1]
+        return torch.stack([x, y], dim=-1)
+
+    def local_to_world(vec_local, yaw):
+        c = torch.cos(yaw)
+        s = torch.sin(yaw)
+        x = c * vec_local[:, 0] - s * vec_local[:, 1]
+        y = s * vec_local[:, 0] + c * vec_local[:, 1]
+        return torch.stack([x, y], dim=-1)
+
+    # ----------------------------
+    # Geometry for navigation
+    # ----------------------------
+    # Approach from button outward normal direction.
+    # Keep the humanoid footprint outside the pillar and stop at a reachable stand-off.
+    nav_standoff = 0.78   # for root position relative to button face center
+    press_standoff = 0.24 # closer press pose so the hand target is actually reachable
+    hand_surface_offset = 0.035
+    desired_press_depth = 0.02
+
+    target_nav_xy = button_xy + button_dir * nav_standoff
+    target_press_xy = button_xy + button_dir * press_standoff
+
+    # Smooth target a bit to avoid jitter if obs is noisy
+    alpha = 0.25
+    prev_target = torch.stack([policy_state["prev_target_x"], policy_state["prev_target_y"]], dim=-1)
+    smoothed_target = (1.0 - alpha) * prev_target + alpha * target_nav_xy
+    use_prev = (prev_target.abs().sum(dim=-1) > 0.0).unsqueeze(-1)
+    target_nav_xy = torch.where(use_prev, smoothed_target, target_nav_xy)
+    policy_state["prev_target_x"] = target_nav_xy[:, 0]
+    policy_state["prev_target_y"] = target_nav_xy[:, 1]
+
+    to_nav_world = target_nav_xy - root_xy
+    to_press_world = target_press_xy - root_xy
+
+    dist_nav = torch.norm(to_nav_world, dim=-1)
+    dist_press = torch.norm(to_press_world, dim=-1)
+
+    desired_yaw = torch.atan2(-button_dir[:, 1], -button_dir[:, 0])  # face toward the button
+    yaw_err = wrap_to_pi(desired_yaw - root_yaw)
+
+    to_nav_local = world_to_local(to_nav_world, root_yaw)
+    to_press_local = world_to_local(to_press_world, root_yaw)
+
+    # ----------------------------
+    # Choose arm based on button lateral side in local frame
+    # positive local y = left side
+    # ----------------------------
+    button_rel_local = world_to_local(button_xy - root_xy, root_yaw)
+    choose_left = button_rel_local[:, 1] >= 0.0
+    policy_state["active_arm"][reset_mask] = torch.where(
+        choose_left[reset_mask],
+        torch.zeros_like(policy_state["active_arm"][reset_mask]),
+        torch.ones_like(policy_state["active_arm"][reset_mask])
+    )
+    near_target_for_arm_choice = (dist_nav < 0.35) | (dist_press < 0.20)
+    policy_state["active_arm"] = torch.where(
+        near_target_for_arm_choice,
+        torch.where(
+            choose_left,
+            torch.zeros_like(policy_state["active_arm"]),
+            torch.ones_like(policy_state["active_arm"])
+        ),
+        policy_state["active_arm"]
+    )
+
+    # ----------------------------
+    # Phase transitions
+    # ----------------------------
+    phase = policy_state["phase"]
+
+    nav_ready = (dist_nav < 0.10) & (torch.abs(yaw_err) < 0.30)
+    press_ready = (dist_press < 0.07) & (torch.abs(yaw_err) < 0.18)
+
+    stable_now = nav_ready | press_ready
+    policy_state["stable_counter"] = torch.where(
+        stable_now,
+        policy_state["stable_counter"] + 1,
+        torch.zeros_like(policy_state["stable_counter"])
+    )
+
+    # 0 -> 1 when near nav target and roughly aligned
+    phase = torch.where((phase == 0) & (policy_state["stable_counter"] >= 4) & nav_ready,
+                        torch.ones_like(phase), phase)
+
+    # 1 -> 2 when near press target and well aligned
+    phase = torch.where((phase == 1) & (policy_state["stable_counter"] >= 6) & press_ready,
+                        torch.full_like(phase, 2), phase)
+
+    # fallback to navigate only if genuinely far from the approach corridor / press pose
+    phase = torch.where((phase == 1) & (dist_nav > 0.45) & (dist_press > 0.28), torch.zeros_like(phase), phase)
+    phase = torch.where((phase == 2) & (dist_press > 0.12), torch.ones_like(phase), phase)
+    policy_state["phase"] = phase
+
+    # ----------------------------
+    # Root motion policy
+    # ----------------------------
+    vx = torch.zeros(num_envs, dtype=dtype, device=device)
+    vy = torch.zeros(num_envs, dtype=dtype, device=device)
+    wz = torch.zeros(num_envs, dtype=dtype, device=device)
+
+    # Navigate phase: move to nav target, keep obstacle-safe approach direction
+    nav_mask = phase == 0
+    vx_nav = 1.2 * to_nav_local[:, 0]
+    vy_nav = 1.2 * to_nav_local[:, 1]
+    wz_nav = 1.5 * yaw_err
+
+    # If facing away, reduce translation and turn first
+    turn_gate = clamp(1.0 - torch.abs(yaw_err) / 1.2, 0.0, 1.0)
+    vx_nav = vx_nav * turn_gate
+    vy_nav = vy_nav * turn_gate
+
+    vx = torch.where(nav_mask, vx_nav, vx)
+    vy = torch.where(nav_mask, vy_nav, vy)
+    wz = torch.where(nav_mask, wz_nav, wz)
+
+    # Align phase: move carefully to press pose
+    align_mask = phase == 1
+    vx_align = 1.2 * to_press_local[:, 0]
+    vy_align = 1.2 * to_press_local[:, 1]
+    wz_align = 1.8 * yaw_err
+
+    # During final alignment, strongly suppress sideways sliding to avoid grazing pillar
+    vy_align = 0.7 * vy_align
+    vx = torch.where(align_mask, vx_align, vx)
+    vy = torch.where(align_mask, vy_align, vy)
+    wz = torch.where(align_mask, wz_align, wz)
+
+    # Press phase: mostly hold base steady, tiny adjustments only
+    press_mask = phase == 2
+    small_to_press_local = to_press_local
+    vx_press = 0.8 * small_to_press_local[:, 0]
+    vy_press = 0.4 * small_to_press_local[:, 1]
+    wz_press = 1.5 * yaw_err
+
+    vx = torch.where(press_mask, vx_press, vx)
+    vy = torch.where(press_mask, vy_press, vy)
+    wz = torch.where(press_mask, wz_press, wz)
+
+    vx = clamp(vx, -0.6, 1.0)
+    vy = clamp(vy, -0.5, 0.5)
+    wz = clamp(wz, -1.0, 1.0)
+
+    # ----------------------------
+    # Arm targets
+    # ----------------------------
+    # Default relaxed forward-ready pose
+    left_target = torch.stack([
+        torch.full((num_envs,), 0.22, dtype=dtype, device=device),
+        torch.full((num_envs,), 0.22, dtype=dtype, device=device),
+        torch.full((num_envs,), 0.18, dtype=dtype, device=device),
+    ], dim=-1)
+
+    right_target = torch.stack([
+        torch.full((num_envs,), 0.22, dtype=dtype, device=device),
+        torch.full((num_envs,), -0.22, dtype=dtype, device=device),
+        torch.full((num_envs,), 0.18, dtype=dtype, device=device),
+    ], dim=-1)
+
+    # Convert desired hand contact point into torso frame approximately.
+    # Observation provides torso-frame hand positions, but not torso world position.
+    # Approximate torso world xy by root xy, and torso world z by torso_height.
+    # This is good enough for a high-level policy.
+    target_hand_world_xy = button_xy + button_dir * hand_surface_offset
+    target_hand_world_z = button_z
+
+    # In press phase, move hand center inward by desired_press_depth.
+    press_inward_xy = -button_dir * desired_press_depth
+    press_target_world_xy = target_hand_world_xy + press_inward_xy
+
+    # Pre-press target: just outside the button surface
+    prepress_vec_world = target_hand_world_xy - root_xy
+    press_vec_world = press_target_world_xy - root_xy
+
+    prepress_local_xy = world_to_local(prepress_vec_world, root_yaw)
+    press_local_xy = world_to_local(press_vec_world, root_yaw)
+
+    hand_z_local = target_hand_world_z - torso_height_obs
+
+    # Reach shaping: favor some forward reach and side offset depending on chosen arm
+    active_left = policy_state["active_arm"] == 0
+    active_right = ~active_left
+
+    # Phase-dependent reach target
+    press_alpha = torch.where(press_mask, torch.ones(num_envs, dtype=dtype, device=device),
+                              torch.where(align_mask, torch.full((num_envs,), 0.35, dtype=dtype, device=device),
+                                          torch.zeros(num_envs, dtype=dtype, device=device)))
+
+    desired_xy_local = (1.0 - press_alpha).unsqueeze(-1) * prepress_local_xy + press_alpha.unsqueeze(-1) * press_local_xy
+
+    # Clamp into reachable command space.
+    left_reach = torch.stack([
+        clamp(desired_xy_local[:, 0], 0.15, 0.42),
+        clamp(desired_xy_local[:, 1], 0.10, 0.38),
+        clamp(hand_z_local, -0.05, 0.40),
+    ], dim=-1)
+
+    right_reach = torch.stack([
+        clamp(desired_xy_local[:, 0], 0.15, 0.42),
+        clamp(desired_xy_local[:, 1], -0.38, -0.10),
+        clamp(hand_z_local, -0.05, 0.40),
+    ], dim=-1)
+
+    # Keep inactive arm tucked but slightly forward
+    left_target = torch.where(active_left.unsqueeze(-1), left_reach, left_target)
+    right_target = torch.where(active_right.unsqueeze(-1), right_reach, right_target)
+
+    # In pure navigation, keep both arms compact unless already close
+    far_mask = dist_nav > 0.25
+    left_nav_pose = torch.stack([
+        torch.full((num_envs,), 0.20, dtype=dtype, device=device),
+        torch.full((num_envs,), 0.20, dtype=dtype, device=device),
+        torch.full((num_envs,), 0.10, dtype=dtype, device=device),
+    ], dim=-1)
+    right_nav_pose = torch.stack([
+        torch.full((num_envs,), 0.20, dtype=dtype, device=device),
+        torch.full((num_envs,), -0.20, dtype=dtype, device=device),
+        torch.full((num_envs,), 0.10, dtype=dtype, device=device),
+    ], dim=-1)
+
+    left_target = torch.where((nav_mask & far_mask).unsqueeze(-1), left_nav_pose, left_target)
+    right_target = torch.where((nav_mask & far_mask).unsqueeze(-1), right_nav_pose, right_target)
+
+    # Smooth pressing progress memory
+    press_progress_target = torch.where(press_mask, torch.ones(num_envs, dtype=dtype, device=device),
+                                        torch.where(align_mask, torch.full((num_envs,), 0.5, dtype=dtype, device=device),
+                                                    torch.zeros(num_envs, dtype=dtype, device=device)))
+    policy_state["press_progress"] = 0.8 * policy_state["press_progress"] + 0.2 * press_progress_target
+
+    # Slightly interpolate active reaching arm using memory for smoother motion
+    p = policy_state["press_progress"].unsqueeze(-1)
+
+    left_pre = torch.stack([
+        clamp(prepress_local_xy[:, 0], 0.15, 0.42),
+        clamp(prepress_local_xy[:, 1], 0.10, 0.38),
+        clamp(hand_z_local, -0.05, 0.40),
+    ], dim=-1)
+    left_post = torch.stack([
+        clamp(press_local_xy[:, 0], 0.15, 0.42),
+        clamp(press_local_xy[:, 1], 0.10, 0.38),
+        clamp(hand_z_local, -0.05, 0.40),
+    ], dim=-1)
+    right_pre = torch.stack([
+        clamp(prepress_local_xy[:, 0], 0.15, 0.42),
+        clamp(prepress_local_xy[:, 1], -0.38, -0.10),
+        clamp(hand_z_local, -0.05, 0.40),
+    ], dim=-1)
+    right_post = torch.stack([
+        clamp(press_local_xy[:, 0], 0.15, 0.42),
+        clamp(press_local_xy[:, 1], -0.38, -0.10),
+        clamp(hand_z_local, -0.05, 0.40),
+    ], dim=-1)
+
+    left_interp = (1.0 - p) * left_pre + p * left_post
+    right_interp = (1.0 - p) * right_pre + p * right_post
+
+    left_target = torch.where((active_left & (phase >= 1)).unsqueeze(-1), left_interp, left_target)
+    right_target = torch.where((active_right & (phase >= 1)).unsqueeze(-1), right_interp, right_target)
+
+    # Final command clamps
+    left_target[:, 0] = clamp(left_target[:, 0], 0.15, 0.45)
+    left_target[:, 1] = clamp(left_target[:, 1], 0.10, 0.38)
+    left_target[:, 2] = clamp(left_target[:, 2], -0.1, 0.5)
+
+    right_target[:, 0] = clamp(right_target[:, 0], 0.15, 0.45)
+    right_target[:, 1] = clamp(right_target[:, 1], -0.38, -0.10)
+    right_target[:, 2] = clamp(right_target[:, 2], -0.1, 0.5)
+
+    # Stand comfortably; button is reachable without squatting
+    torso_height_cmd = torch.full((num_envs,), 0.88, dtype=dtype, device=device)
+    torso_height_cmd = torch.where(button_z < 0.85, torso_height_cmd, torch.full_like(torso_height_cmd, 0.90))
+    torso_height_cmd = clamp(torso_height_cmd, 0.5, 0.95)
+
+    action = torch.cat([
+        vx.unsqueeze(-1),
+        vy.unsqueeze(-1),
+        wz.unsqueeze(-1),
+        left_target,
+        right_target,
+        torso_height_cmd.unsqueeze(-1),
+    ], dim=-1)
+
+    return action, policy_state

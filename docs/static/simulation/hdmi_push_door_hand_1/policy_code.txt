@@ -1,0 +1,283 @@
+def policy_code(observation, policy_state):
+    # observation shape: (N, 29)
+    device = observation.device
+    N = observation.shape[0]
+
+    if policy_state is None:
+        policy_state = {
+            "needs_init": torch.ones(N, dtype=torch.bool, device=device),
+            "phase": torch.zeros(N, dtype=torch.long, device=device),   # 0 approach, 1 push/open, 2 pass through
+            "push_side": torch.zeros(N, device=device),                 # +1 push from hinge-left side, -1 from hinge-right side
+            "smoothed_vx": torch.zeros(N, device=device),
+            "smoothed_vy": torch.zeros(N, device=device),
+            "smoothed_wz": torch.zeros(N, device=device),
+            "target_side_x": torch.zeros(N, device=device),
+            "target_side_y": torch.zeros(N, device=device),
+            "closed_ux": torch.zeros(N, device=device),
+            "closed_uy": torch.zeros(N, device=device),
+            "closed_half": torch.zeros(N, device=device),
+        }
+
+    reset_mask = policy_state["needs_init"]
+    if torch.any(reset_mask):
+        policy_state["phase"][reset_mask] = 0
+        policy_state["push_side"][reset_mask] = 1.0
+        policy_state["smoothed_vx"][reset_mask] = 0.0
+        policy_state["smoothed_vy"][reset_mask] = 0.0
+        policy_state["smoothed_wz"][reset_mask] = 0.0
+        policy_state["target_side_x"][reset_mask] = 0.0
+        policy_state["target_side_y"][reset_mask] = 0.0
+        policy_state["closed_ux"][reset_mask] = 0.0
+        policy_state["closed_uy"][reset_mask] = 0.0
+        policy_state["closed_half"][reset_mask] = 0.0
+
+    # -------------------------
+    # Parse observation
+    # -------------------------
+    root_x = observation[:, 0]
+    root_y = observation[:, 1]
+    root_yaw = observation[:, 2]
+
+    # local root vel not strictly needed for this heuristic controller
+    # observation[:, 3:6]
+
+    left_ee = observation[:, 6:9]
+    right_ee = observation[:, 9:12]
+    torso_height_obs = observation[:, 12]
+
+    hinge_x = observation[:, 13]
+    hinge_y = observation[:, 14]
+
+    door_cx = observation[:, 15]
+    door_cy = observation[:, 16]
+    door_cz = observation[:, 17]
+
+    door_angle = observation[:, 18]
+
+    # -------------------------
+    # Helpers
+    # -------------------------
+    def wrap_to_pi(a):
+        return torch.atan2(torch.sin(a), torch.cos(a))
+
+    def clamp(x, lo, hi):
+        return torch.clamp(x, lo, hi)
+
+    # Vector from hinge to door center gives current closed/open panel direction in XY
+    panel_vx = door_cx - hinge_x
+    panel_vy = door_cy - hinge_y
+    panel_len = torch.sqrt(panel_vx * panel_vx + panel_vy * panel_vy + 1e-8)
+
+    # Unit vector along panel from hinge to center
+    ux = panel_vx / panel_len
+    uy = panel_vy / panel_len
+
+    # Door normal in plane. Choose positive-angle opening side as +normal:
+    # rotating panel direction CCW by 90 deg.
+    nx = -uy
+    ny = ux
+
+    # Estimate which side is the "front/start side" using root position relative to panel line.
+    # Positive signed distance => one side, negative => the other.
+    root_rel_x = root_x - hinge_x
+    root_rel_y = root_y - hinge_y
+    signed_dist_to_panel_normal = root_rel_x * nx + root_rel_y * ny
+
+    # Remember start side on reset
+    if torch.any(reset_mask):
+        init_side = torch.where(signed_dist_to_panel_normal[reset_mask] >= 0.0,
+                                torch.ones_like(signed_dist_to_panel_normal[reset_mask]),
+                                -torch.ones_like(signed_dist_to_panel_normal[reset_mask]))
+        policy_state["push_side"][reset_mask] = init_side
+        policy_state["closed_ux"][reset_mask] = ux[reset_mask]
+        policy_state["closed_uy"][reset_mask] = uy[reset_mask]
+        policy_state["closed_half"][reset_mask] = panel_len[reset_mask]
+
+    policy_state["needs_init"][reset_mask] = False
+
+    push_side = torch.where(policy_state["push_side"] >= 0.0,
+                            torch.ones_like(policy_state["push_side"]),
+                            -torch.ones_like(policy_state["push_side"]))
+
+    # Desired side to end on after passing through = opposite of start side
+    far_side = -push_side
+
+    # Freeze doorway geometry from the initial closed-door pose so pass-through
+    # navigation stays aligned with the doorway instead of the rotating panel.
+    door_half = torch.clamp(policy_state["closed_half"], min=0.05)
+    ux_ref = policy_state["closed_ux"]
+    uy_ref = policy_state["closed_uy"]
+    ref_norm = torch.sqrt(ux_ref * ux_ref + uy_ref * uy_ref + 1e-8)
+    ux_ref = ux_ref / ref_norm
+    uy_ref = uy_ref / ref_norm
+    nx_ref = -uy_ref
+    ny_ref = ux_ref
+
+    # A point near the latch side of the door centerline, slightly toward the human's start side.
+    latch_x = hinge_x + 2.0 * ux_ref * door_half
+    latch_y = hinge_y + 2.0 * uy_ref * door_half
+
+    # Standoff points
+    # Approach point: in front of latch, on the start side of the panel, with some offset.
+    # This gives space for the 0.5m navigation footprint.
+    approach_offset_normal = 0.62
+    approach_offset_tangent = -0.08
+    approach_x = latch_x + push_side * approach_offset_normal * nx_ref + approach_offset_tangent * ux_ref
+    approach_y = latch_y + push_side * approach_offset_normal * ny_ref + approach_offset_tangent * uy_ref
+
+    # Pass-through target: go to the other side of the fixed doorway, not with the swinging panel.
+    pass_offset_normal = 0.85
+    pass_offset_tangent = -0.35
+    pass_x = latch_x + far_side * pass_offset_normal * nx_ref + pass_offset_tangent * ux_ref
+    pass_y = latch_y + far_side * pass_offset_normal * ny_ref + pass_offset_tangent * uy_ref
+
+    # Save targets for debugging/consistency
+    policy_state["target_side_x"] = pass_x
+    policy_state["target_side_y"] = pass_y
+
+    # Distances
+    dist_to_approach = torch.sqrt((approach_x - root_x) ** 2 + (approach_y - root_y) ** 2 + 1e-8)
+    dist_to_pass = torch.sqrt((pass_x - root_x) ** 2 + (pass_y - root_y) ** 2 + 1e-8)
+    dist_to_latch = torch.sqrt((latch_x - root_x) ** 2 + (latch_y - root_y) ** 2 + 1e-8)
+
+    # -------------------------
+    # Phase transitions
+    # -------------------------
+    phase = policy_state["phase"]
+
+    # If door sufficiently open, switch to pass-through
+    phase = torch.where(door_angle > 1.0, torch.full_like(phase, 2), phase)
+
+    # If near approach point and door not open enough, switch to push/open
+    cond_push = (dist_to_approach < 0.22) & (door_angle <= 1.0)
+    phase = torch.where(cond_push, torch.full_like(phase, 1), phase)
+
+    # If moved far away from approach before opening enough, revert to approach
+    cond_reapproach = (phase == 1) & (dist_to_latch > 0.9) & (door_angle < 0.7)
+    phase = torch.where(cond_reapproach, torch.zeros_like(phase), phase)
+
+    policy_state["phase"] = phase
+
+    # -------------------------
+    # Navigation targets by phase
+    # -------------------------
+    target_x = torch.where(phase == 0, approach_x, torch.where(phase == 1, approach_x, pass_x))
+    target_y = torch.where(phase == 0, approach_y, torch.where(phase == 1, approach_y, pass_y))
+
+    to_tx = target_x - root_x
+    to_ty = target_y - root_y
+    target_yaw = torch.atan2(to_ty, to_tx)
+
+    # During push phase, face mostly toward door opening direction / latch.
+    push_face_yaw = torch.atan2(latch_y - root_y, latch_x - root_x)
+    target_yaw = torch.where(phase == 1, push_face_yaw, target_yaw)
+
+    yaw_err = wrap_to_pi(target_yaw - root_yaw)
+
+    # Convert target direction to local frame
+    c = torch.cos(root_yaw)
+    s = torch.sin(root_yaw)
+    local_tx = c * to_tx + s * to_ty
+    local_ty = -s * to_tx + c * to_ty
+
+    # Base motion
+    vx_cmd = 0.9 * local_tx
+    vy_cmd = 0.9 * local_ty
+    wz_cmd = 1.5 * yaw_err
+
+    # Slow and stabilize during push
+    vx_cmd = torch.where(phase == 1, 0.25 * torch.ones_like(vx_cmd), vx_cmd)
+    vy_cmd = torch.where(phase == 1, 0.35 * local_ty, vy_cmd)
+    wz_cmd = torch.where(phase == 1, 1.2 * yaw_err, wz_cmd)
+
+    # When passing through and door is well open, move more assertively
+    fast_pass = (phase == 2) & (door_angle > 1.25)
+    vx_cmd = torch.where(fast_pass, 1.1 * local_tx, vx_cmd)
+    vy_cmd = torch.where(fast_pass, 0.8 * local_ty, vy_cmd)
+
+    # Clamp action limits
+    vx_cmd = clamp(vx_cmd, -0.6, 1.0)
+    vy_cmd = clamp(vy_cmd, -0.5, 0.5)
+    wz_cmd = clamp(wz_cmd, -1.0, 1.0)
+
+    # Smooth base commands
+    alpha = 0.7
+    policy_state["smoothed_vx"] = alpha * policy_state["smoothed_vx"] + (1.0 - alpha) * vx_cmd
+    policy_state["smoothed_vy"] = alpha * policy_state["smoothed_vy"] + (1.0 - alpha) * vy_cmd
+    policy_state["smoothed_wz"] = alpha * policy_state["smoothed_wz"] + (1.0 - alpha) * wz_cmd
+
+    base_vx = clamp(policy_state["smoothed_vx"], -0.6, 1.0)
+    base_vy = clamp(policy_state["smoothed_vy"], -0.5, 0.5)
+    base_wz = clamp(policy_state["smoothed_wz"], -1.0, 1.0)
+
+    # -------------------------
+    # Arm strategy
+    # Use right hand to push door from the front/start side.
+    # Keep left hand tucked forward for balance.
+    # Since only torso-frame EE positions are controllable, use a robust forward-reaching pose
+    # during pushing and a neutral walking pose otherwise.
+    # -------------------------
+    left_x = torch.full((N,), 0.22, device=device)
+    left_y = torch.full((N,), 0.18, device=device)
+    left_z = torch.full((N,), 0.18, device=device)
+
+    right_x = torch.full((N,), 0.22, device=device)
+    right_y = torch.full((N,), -0.18, device=device)
+    right_z = torch.full((N,), 0.18, device=device)
+
+    # Push pose: extend right hand forward at about handle/panel height.
+    pushing = phase == 1
+    right_x = torch.where(pushing, torch.full_like(right_x, 0.42), right_x)
+    right_y = torch.where(pushing, torch.full_like(right_y, -0.16), right_y)
+    right_z = torch.where(pushing, torch.full_like(right_z, 0.30), right_z)
+
+    # Slightly brace with left hand forward but not crossing body
+    left_x = torch.where(pushing, torch.full_like(left_x, 0.28), left_x)
+    left_y = torch.where(pushing, torch.full_like(left_y, 0.16), left_y)
+    left_z = torch.where(pushing, torch.full_like(left_z, 0.22), left_z)
+
+    # While passing through, tuck arms in a bit to avoid collision
+    passing = phase == 2
+    left_x = torch.where(passing, torch.full_like(left_x, 0.20), left_x)
+    left_y = torch.where(passing, torch.full_like(left_y, 0.16), left_y)
+    left_z = torch.where(passing, torch.full_like(left_z, 0.14), left_z)
+
+    right_x = torch.where(passing, torch.full_like(right_x, 0.20), right_x)
+    right_y = torch.where(passing, torch.full_like(right_y, -0.16), right_y)
+    right_z = torch.where(passing, torch.full_like(right_z, 0.14), right_z)
+
+    # If door is barely open in push phase, reach a bit more aggressively
+    very_closed = pushing & (door_angle < 0.35)
+    right_x = torch.where(very_closed, torch.full_like(right_x, 0.45), right_x)
+    right_z = torch.where(very_closed, torch.full_like(right_z, 0.32), right_z)
+
+    # Torso height
+    torso_h = torch.full((N,), 0.82, device=device)
+    torso_h = torch.where(pushing, torch.full_like(torso_h, 0.84), torso_h)
+    torso_h = torch.where(passing, torch.full_like(torso_h, 0.80), torso_h)
+
+    # Final clamp
+    left_x = clamp(left_x, 0.15, 0.45)
+    left_y = clamp(left_y, 0.10, 0.38)
+    left_z = clamp(left_z, -0.1, 0.5)
+
+    right_x = clamp(right_x, 0.15, 0.45)
+    right_y = clamp(right_y, -0.38, -0.1)
+    right_z = clamp(right_z, -0.1, 0.5)
+
+    torso_h = clamp(torso_h, 0.5, 0.95)
+
+    action = torch.stack([
+        base_vx,
+        base_vy,
+        base_wz,
+        left_x,
+        left_y,
+        left_z,
+        right_x,
+        right_y,
+        right_z,
+        torso_h
+    ], dim=-1)
+
+    return action, policy_state

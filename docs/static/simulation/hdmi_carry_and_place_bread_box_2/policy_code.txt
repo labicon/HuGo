@@ -1,0 +1,494 @@
+def policy_code(observation, policy_state):
+    num_envs = observation.shape[0]
+    device = observation.device
+    dtype = observation.dtype
+
+    if policy_state is None:
+        policy_state = {
+            "needs_init": torch.ones(num_envs, dtype=torch.bool, device=device),
+            "phase": torch.zeros(num_envs, dtype=torch.long, device=device),  # 0 approach, 1 align, 2 grasp, 3 carry, 4 place, 5 retreat
+            "grasp_timer": torch.zeros(num_envs, dtype=dtype, device=device),
+            "place_timer": torch.zeros(num_envs, dtype=dtype, device=device),
+            "filtered_target_x": torch.zeros(num_envs, dtype=dtype, device=device),
+            "filtered_target_y": torch.zeros(num_envs, dtype=dtype, device=device),
+            "carry_side": torch.ones(num_envs, dtype=dtype, device=device),  # +1 or -1 side choice around obstacles
+        }
+
+    reset_mask = policy_state["needs_init"]
+    if torch.any(reset_mask):
+        policy_state["phase"][reset_mask] = 0
+        policy_state["grasp_timer"][reset_mask] = 0.0
+        policy_state["place_timer"][reset_mask] = 0.0
+        policy_state["filtered_target_x"][reset_mask] = 0.0
+        policy_state["filtered_target_y"][reset_mask] = 0.0
+        policy_state["carry_side"][reset_mask] = 1.0
+    policy_state["needs_init"][reset_mask] = False
+
+    # ----------------------------
+    # Observation unpack
+    # ----------------------------
+    root_x = observation[:, 0]
+    root_y = observation[:, 1]
+    root_yaw = observation[:, 2]
+
+    root_vx_local = observation[:, 3]
+    root_vy_local = observation[:, 4]
+    root_wz = observation[:, 5]
+
+    left_ee_x = observation[:, 6]
+    left_ee_y = observation[:, 7]
+    left_ee_z = observation[:, 8]
+
+    right_ee_x = observation[:, 9]
+    right_ee_y = observation[:, 10]
+    right_ee_z = observation[:, 11]
+
+    torso_height_obs = observation[:, 12]
+
+    box_x = observation[:, 13]
+    box_y = observation[:, 14]
+    box_z = observation[:, 15]
+    box_yaw = observation[:, 16]
+
+    verts = observation[:, 17:25].view(num_envs, 4, 2)
+    target_x = observation[:, 25]
+    target_y = observation[:, 26]
+
+    last_action = observation[:, 27:37]
+
+    # ----------------------------
+    # Helpers
+    # ----------------------------
+    def wrap_to_pi(x):
+        return torch.atan2(torch.sin(x), torch.cos(x))
+
+    def clamp(x, lo, hi):
+        return torch.clamp(x, lo, hi)
+
+    def world_to_local(dx, dy, yaw):
+        cy = torch.cos(yaw)
+        sy = torch.sin(yaw)
+        lx = cy * dx + sy * dy
+        ly = -sy * dx + cy * dy
+        return lx, ly
+
+    def local_to_world(lx, ly, yaw):
+        cy = torch.cos(yaw)
+        sy = torch.sin(yaw)
+        wx = cy * lx - sy * ly
+        wy = sy * lx + cy * ly
+        return wx, wy
+
+    def smooth(prev, new, alpha=0.2):
+        return (1.0 - alpha) * prev + alpha * new
+
+    # Box frame axes:
+    # u = along box yaw / wide side
+    # v = perpendicular to box yaw / narrow side
+    u_x = torch.cos(box_yaw)
+    u_y = torch.sin(box_yaw)
+    v_x = -torch.sin(box_yaw)
+    v_y = torch.cos(box_yaw)
+
+    # Geometry / margins
+    box_half_wide = 0.18   # ~0.36 / 2
+    hand_radius = 0.035
+    side_grasp_margin = 0.01
+    side_contact_offset = box_half_wide + hand_radius + side_grasp_margin  # hand centers outside side faces
+
+    # World vectors
+    root_to_box_x = box_x - root_x
+    root_to_box_y = box_y - root_y
+    root_box_dist = torch.sqrt(root_to_box_x ** 2 + root_to_box_y ** 2 + 1e-9)
+
+    box_to_target_x = target_x - box_x
+    box_to_target_y = target_y - box_y
+    box_target_dist = torch.sqrt(box_to_target_x ** 2 + box_to_target_y ** 2 + 1e-9)
+
+    # Choose carry side based on initial cross product sign to route around podium/object region
+    desired_side = torch.sign((target_x - box_x) * (root_y - box_y) - (target_y - box_y) * (root_x - box_x))
+    desired_side = torch.where(torch.abs(desired_side) < 0.5, torch.ones_like(desired_side), desired_side)
+    policy_state["carry_side"] = torch.where(
+        policy_state["phase"] <= 1, desired_side, policy_state["carry_side"]
+    )
+
+    # ----------------------------
+    # Approach / alignment goals
+    # ----------------------------
+    # Stand slightly in front of the box relative to the robot, rather than on the far side.
+    # This avoids trying to route through the box/podium region to reach a back-side stance.
+    approach_dx = root_x - box_x
+    approach_dy = root_y - box_y
+    approach_norm = torch.sqrt(approach_dx ** 2 + approach_dy ** 2 + 1e-9)
+    approach_dir_x = approach_dx / approach_norm
+    approach_dir_y = approach_dy / approach_norm
+
+    stand_back = 0.24
+    align_world_x = box_x + stand_back * approach_dir_x
+    align_world_y = box_y + stand_back * approach_dir_y
+
+    # Add a small lateral bias during far approach to avoid cutting too close through podium region
+    lateral_bias = 0.12 * policy_state["carry_side"]
+    far_approach_x = align_world_x + lateral_bias * v_x
+    far_approach_y = align_world_y + lateral_bias * v_y
+
+    use_far = root_box_dist > 1.0
+    nav_goal_x = torch.where(use_far, far_approach_x, align_world_x)
+    nav_goal_y = torch.where(use_far, far_approach_y, align_world_y)
+
+    # Filter navigation target a bit
+    fx = policy_state["filtered_target_x"]
+    fy = policy_state["filtered_target_y"]
+    fx = torch.where(reset_mask, nav_goal_x, smooth(fx, nav_goal_x, alpha=0.2))
+    fy = torch.where(reset_mask, nav_goal_y, smooth(fy, nav_goal_y, alpha=0.2))
+    policy_state["filtered_target_x"] = fx
+    policy_state["filtered_target_y"] = fy
+
+    goal_dx = fx - root_x
+    goal_dy = fy - root_y
+    goal_local_x, goal_local_y = world_to_local(goal_dx, goal_dy, root_yaw)
+
+    desired_yaw_to_box = torch.atan2(box_y - root_y, box_x - root_x)
+    yaw_err_face_box = wrap_to_pi(desired_yaw_to_box - root_yaw)
+
+    desired_yaw_carry = torch.atan2(target_y - box_y, target_x - box_x)
+    yaw_err_carry = wrap_to_pi(desired_yaw_carry - root_yaw)
+
+    align_dist = torch.sqrt((align_world_x - root_x) ** 2 + (align_world_y - root_y) ** 2 + 1e-9)
+
+    # ----------------------------
+    # Phase transitions
+    # ----------------------------
+    phase = policy_state["phase"]
+
+    # 0 -> 1 when near pregrasp stance
+    to_align = (phase == 0) & (align_dist < 0.24)
+    phase = torch.where(to_align, torch.ones_like(phase), phase)
+
+    # 1 -> 2 when position and yaw are aligned enough
+    # Prefer facing roughly toward box center.
+    to_grasp = (phase == 1) & (align_dist < 0.18) & (torch.abs(yaw_err_face_box) < 0.28)
+    phase = torch.where(to_grasp, torch.full_like(phase, 2), phase)
+
+    # Grasp timer bookkeeping
+    in_grasp = phase == 2
+    policy_state["grasp_timer"] = torch.where(
+        in_grasp, policy_state["grasp_timer"] + 1.0, torch.zeros_like(policy_state["grasp_timer"])
+    )
+
+    # 2 -> 3 after some settling time with box close
+    to_carry = (phase == 2) & (policy_state["grasp_timer"] > 18.0)
+    phase = torch.where(to_carry, torch.full_like(phase, 3), phase)
+
+    # 3 -> 4 when box reaches target and is not excessively lifted
+    to_place = (phase == 3) & (box_target_dist < 0.14) & (box_z < 1.00)
+    phase = torch.where(to_place, torch.full_like(phase, 4), phase)
+
+    # Place timer bookkeeping
+    in_place = phase == 4
+    policy_state["place_timer"] = torch.where(
+        in_place, policy_state["place_timer"] + 1.0, torch.zeros_like(policy_state["place_timer"])
+    )
+
+    # 4 -> 5 after lowering/release hold
+    to_retreat = (phase == 4) & (policy_state["place_timer"] > 28.0)
+    phase = torch.where(to_retreat, torch.full_like(phase, 5), phase)
+
+    policy_state["phase"] = phase
+
+    # ----------------------------
+    # Default action
+    # ----------------------------
+    action = torch.zeros((num_envs, 10), dtype=dtype, device=device)
+
+    # Root commands
+    cmd_vx = torch.zeros(num_envs, dtype=dtype, device=device)
+    cmd_vy = torch.zeros(num_envs, dtype=dtype, device=device)
+    cmd_wz = torch.zeros(num_envs, dtype=dtype, device=device)
+
+    # Arm defaults: relaxed
+    ltx = torch.full((num_envs,), 0.22, dtype=dtype, device=device)
+    lty = torch.full((num_envs,), 0.24, dtype=dtype, device=device)
+    ltz = torch.full((num_envs,), 0.02, dtype=dtype, device=device)
+
+    rtx = torch.full((num_envs,), 0.22, dtype=dtype, device=device)
+    rty = torch.full((num_envs,), -0.24, dtype=dtype, device=device)
+    rtz = torch.full((num_envs,), 0.02, dtype=dtype, device=device)
+
+    torso_h = torch.full((num_envs,), 0.80, dtype=dtype, device=device)
+
+    # ----------------------------
+    # Phase 0/1: navigate and align for grasp
+    # ----------------------------
+    nav_mask = (phase == 0) | (phase == 1)
+
+    cmd_vx_nav = 1.2 * goal_local_x
+    cmd_vy_nav = 1.5 * goal_local_y
+
+    # Slow down when close; phase 1 is mostly precise alignment
+    nav_speed_scale = torch.where(phase == 0, torch.ones_like(cmd_vx_nav), 0.55 * torch.ones_like(cmd_vx_nav))
+    cmd_vx_nav = cmd_vx_nav * nav_speed_scale
+    cmd_vy_nav = cmd_vy_nav * nav_speed_scale
+
+    cmd_wz_nav = 1.8 * yaw_err_face_box
+
+    # When very close, prefer yaw alignment over translation
+    close_align = align_dist < 0.22
+    cmd_vx_nav = torch.where(close_align, 0.7 * cmd_vx_nav, cmd_vx_nav)
+    cmd_vy_nav = torch.where(close_align, 0.5 * cmd_vy_nav, cmd_vy_nav)
+
+    cmd_vx = torch.where(nav_mask, cmd_vx_nav, cmd_vx)
+    cmd_vy = torch.where(nav_mask, cmd_vy_nav, cmd_vy)
+    cmd_wz = torch.where(nav_mask, cmd_wz_nav, cmd_wz)
+
+    # Pre-grasp arm posture: open wide from sides, slightly forward
+    pre_z = box_z - torso_height_obs + 0.02
+    pre_z = clamp(pre_z, 0.02, 0.24)
+
+    ltx_nav = torch.full((num_envs,), 0.32, dtype=dtype, device=device)
+    lty_nav = torch.full((num_envs,), 0.31, dtype=dtype, device=device)
+    ltz_nav = pre_z
+
+    rtx_nav = torch.full((num_envs,), 0.32, dtype=dtype, device=device)
+    rty_nav = torch.full((num_envs,), -0.31, dtype=dtype, device=device)
+    rtz_nav = pre_z
+
+    ltx = torch.where(nav_mask, ltx_nav, ltx)
+    lty = torch.where(nav_mask, lty_nav, lty)
+    ltz = torch.where(nav_mask, ltz_nav, ltz)
+
+    rtx = torch.where(nav_mask, rtx_nav, rtx)
+    rty = torch.where(nav_mask, rty_nav, rty)
+    rtz = torch.where(nav_mask, rtz_nav, rtz)
+
+    torso_h = torch.where(nav_mask, torch.full_like(torso_h, 0.80), torso_h)
+
+    # ----------------------------
+    # Phase 2: grasp from both sides
+    # ----------------------------
+    grasp_mask = phase == 2
+
+    # Allow small root correction while closing, maintain facing
+    cmd_wz_grasp = 1.5 * yaw_err_face_box
+    box_local_x, box_local_y = world_to_local(root_to_box_x, root_to_box_y, root_yaw)
+    cmd_vx_grasp = 0.8 * (box_local_x - 0.24)
+    cmd_vy_grasp = 1.2 * box_local_y
+    cmd_vx_grasp = clamp(cmd_vx_grasp, -0.12, 0.20)
+    cmd_vy_grasp = clamp(cmd_vy_grasp, -0.12, 0.12)
+    cmd_vx = torch.where(grasp_mask, cmd_vx_grasp, cmd_vx)
+    cmd_vy = torch.where(grasp_mask, cmd_vy_grasp, cmd_vy)
+    cmd_wz = torch.where(grasp_mask, cmd_wz_grasp, cmd_wz)
+
+    # Convert desired side contact points into torso frame approximately.
+    # Left hand to +v side, right hand to -v side.
+    left_contact_x_w = box_x + side_contact_offset * v_x
+    left_contact_y_w = box_y + side_contact_offset * v_y
+    right_contact_x_w = box_x - side_contact_offset * v_x
+    right_contact_y_w = box_y - side_contact_offset * v_y
+
+    ldx = left_contact_x_w - root_x
+    ldy = left_contact_y_w - root_y
+    rdx = right_contact_x_w - root_x
+    rdy = right_contact_y_w - root_y
+
+    lcx, lcy = world_to_local(ldx, ldy, root_yaw)
+    rcx, rcy = world_to_local(rdx, rdy, root_yaw)
+
+    # Torso frame approx from root-local to torso-local; x/y same for our purposes.
+    grasp_z = box_z - torso_height_obs + 0.01
+    grasp_z = clamp(grasp_z, 0.00, 0.22)
+
+    # During grasp timer, move from open to closed
+    close_alpha = clamp(policy_state["grasp_timer"] / 12.0, 0.0, 1.0)
+    open_side = 0.34
+    closed_left_y = clamp(lcy, 0.14, 0.30)
+    closed_right_y = clamp(rcy, -0.30, -0.14)
+
+    open_x = torch.full((num_envs,), 0.31, dtype=dtype, device=device)
+    closed_left_x = clamp(lcx, 0.22, 0.40)
+    closed_right_x = clamp(rcx, 0.22, 0.40)
+
+    ltx_grasp = (1.0 - close_alpha) * open_x + close_alpha * closed_left_x
+    lty_grasp = (1.0 - close_alpha) * open_side + close_alpha * closed_left_y
+    ltz_grasp = grasp_z
+
+    rtx_grasp = (1.0 - close_alpha) * open_x + close_alpha * closed_right_x
+    rty_grasp = (1.0 - close_alpha) * (-open_side) + close_alpha * closed_right_y
+    rtz_grasp = grasp_z
+
+    ltx = torch.where(grasp_mask, ltx_grasp, ltx)
+    lty = torch.where(grasp_mask, lty_grasp, lty)
+    ltz = torch.where(grasp_mask, ltz_grasp, ltz)
+
+    rtx = torch.where(grasp_mask, rtx_grasp, rtx)
+    rty = torch.where(grasp_mask, rty_grasp, rty)
+    rtz = torch.where(grasp_mask, rtz_grasp, rtz)
+
+    torso_h = torch.where(grasp_mask, torch.full_like(torso_h, 0.78), torso_h)
+
+    # ----------------------------
+    # Phase 3: carry to target while holding box
+    # ----------------------------
+    carry_mask = phase == 3
+
+    # Navigate with box toward target. Slow and stable.
+    carry_goal_dx = target_x - root_x
+    carry_goal_dy = target_y - root_y
+    carry_lx, carry_ly = world_to_local(carry_goal_dx, carry_goal_dy, root_yaw)
+
+    cmd_vx_carry = 0.9 * carry_lx
+    cmd_vy_carry = 1.0 * carry_ly
+    cmd_wz_carry = 1.2 * yaw_err_carry
+
+    # Slow more when close to target
+    near_target = box_target_dist < 0.45
+    cmd_vx_carry = torch.where(near_target, 0.55 * cmd_vx_carry, cmd_vx_carry)
+    cmd_vy_carry = torch.where(near_target, 0.55 * cmd_vy_carry, cmd_vy_carry)
+    cmd_wz_carry = torch.where(near_target, 0.7 * cmd_wz_carry, cmd_wz_carry)
+
+    cmd_vx = torch.where(carry_mask, cmd_vx_carry, cmd_vx)
+    cmd_vy = torch.where(carry_mask, cmd_vy_carry, cmd_vy)
+    cmd_wz = torch.where(carry_mask, cmd_wz_carry, cmd_wz)
+
+    # Hold box from both sides, slightly lifted
+    hold_z = box_z - torso_height_obs + 0.02
+    hold_z = clamp(hold_z, 0.03, 0.20)
+
+    left_hold_x_w = box_x + side_contact_offset * v_x
+    left_hold_y_w = box_y + side_contact_offset * v_y
+    right_hold_x_w = box_x - side_contact_offset * v_x
+    right_hold_y_w = box_y - side_contact_offset * v_y
+
+    ldx = left_hold_x_w - root_x
+    ldy = left_hold_y_w - root_y
+    rdx = right_hold_x_w - root_x
+    rdy = right_hold_y_w - root_y
+    lcx, lcy = world_to_local(ldx, ldy, root_yaw)
+    rcx, rcy = world_to_local(rdx, rdy, root_yaw)
+
+    ltx = torch.where(carry_mask, clamp(lcx, 0.20, 0.42), ltx)
+    lty = torch.where(carry_mask, clamp(lcy, 0.12, 0.30), lty)
+    ltz = torch.where(carry_mask, hold_z, ltz)
+
+    rtx = torch.where(carry_mask, clamp(rcx, 0.20, 0.42), rtx)
+    rty = torch.where(carry_mask, clamp(rcy, -0.30, -0.12), rty)
+    rtz = torch.where(carry_mask, hold_z, rtz)
+
+    torso_h = torch.where(carry_mask, torch.full_like(torso_h, 0.80), torso_h)
+
+    # ----------------------------
+    # Phase 4: place on target podium
+    # ----------------------------
+    place_mask = phase == 4
+
+    cmd_vx = torch.where(place_mask, torch.zeros_like(cmd_vx), cmd_vx)
+    cmd_vy = torch.where(place_mask, torch.zeros_like(cmd_vy), cmd_vy)
+    cmd_wz = torch.where(place_mask, 0.7 * yaw_err_carry, cmd_wz)
+
+    # Lower slightly and relax outward over time
+    release_alpha = clamp(policy_state["place_timer"] / 14.0, 0.0, 1.0)
+    place_z = box_z - torso_height_obs - 0.02
+    place_z = clamp(place_z, -0.03, 0.16)
+
+    ltx_place_hold = clamp(lcx, 0.22, 0.40)
+    rtx_place_hold = clamp(rcx, 0.22, 0.40)
+    lty_place_hold = clamp(lcy, 0.14, 0.28)
+    rty_place_hold = clamp(rcy, -0.28, -0.14)
+
+    ltx_place_rel = torch.full((num_envs,), 0.28, dtype=dtype, device=device)
+    rtx_place_rel = torch.full((num_envs,), 0.28, dtype=dtype, device=device)
+    lty_place_rel = torch.full((num_envs,), 0.34, dtype=dtype, device=device)
+    rty_place_rel = torch.full((num_envs,), -0.34, dtype=dtype, device=device)
+
+    ltx = torch.where(place_mask, (1 - release_alpha) * ltx_place_hold + release_alpha * ltx_place_rel, ltx)
+    lty = torch.where(place_mask, (1 - release_alpha) * lty_place_hold + release_alpha * lty_place_rel, lty)
+    ltz = torch.where(place_mask, place_z, ltz)
+
+    rtx = torch.where(place_mask, (1 - release_alpha) * rtx_place_hold + release_alpha * rtx_place_rel, rtx)
+    rty = torch.where(place_mask, (1 - release_alpha) * rty_place_hold + release_alpha * rty_place_rel, rty)
+    rtz = torch.where(place_mask, place_z, rtz)
+
+    torso_h = torch.where(place_mask, torch.full_like(torso_h, 0.78), torso_h)
+
+    # ----------------------------
+    # Phase 5: retreat
+    # ----------------------------
+    retreat_mask = phase == 5
+
+    retreat_world_x = target_x - 0.35 * u_x
+    retreat_world_y = target_y - 0.35 * u_y
+    retreat_dx = retreat_world_x - root_x
+    retreat_dy = retreat_world_y - root_y
+    retreat_lx, retreat_ly = world_to_local(retreat_dx, retreat_dy, root_yaw)
+
+    cmd_vx = torch.where(retreat_mask, 1.0 * retreat_lx, cmd_vx)
+    cmd_vy = torch.where(retreat_mask, 1.0 * retreat_ly, cmd_vy)
+    cmd_wz = torch.where(retreat_mask, 0.8 * yaw_err_carry, cmd_wz)
+
+    ltx = torch.where(retreat_mask, torch.full_like(ltx, 0.22), ltx)
+    lty = torch.where(retreat_mask, torch.full_like(lty, 0.28), lty)
+    ltz = torch.where(retreat_mask, torch.full_like(ltz, 0.04), ltz)
+
+    rtx = torch.where(retreat_mask, torch.full_like(rtx, 0.22), rtx)
+    rty = torch.where(retreat_mask, torch.full_like(rty, -0.28), rty)
+    rtz = torch.where(retreat_mask, torch.full_like(rtz, 0.04), rtz)
+
+    torso_h = torch.where(retreat_mask, torch.full_like(torso_h, 0.82), torso_h)
+
+    # If after retreat the robot drifts far from box/target relation, restart.
+    restart_mask = (phase == 5) & (torch.sqrt((retreat_world_x - root_x) ** 2 + (retreat_world_y - root_y) ** 2 + 1e-9) < 0.12)
+    policy_state["phase"] = torch.where(restart_mask, torch.zeros_like(policy_state["phase"]), policy_state["phase"])
+    policy_state["grasp_timer"] = torch.where(restart_mask, torch.zeros_like(policy_state["grasp_timer"]), policy_state["grasp_timer"])
+    policy_state["place_timer"] = torch.where(restart_mask, torch.zeros_like(policy_state["place_timer"]), policy_state["place_timer"])
+
+    # ----------------------------
+    # Safety clamps / smoothing from last action
+    # ----------------------------
+    cmd_vx = clamp(cmd_vx, -0.6, 1.0)
+    cmd_vy = clamp(cmd_vy, -0.5, 0.5)
+    cmd_wz = clamp(cmd_wz, -1.0, 1.0)
+
+    ltx = clamp(ltx, 0.15, 0.45)
+    lty = clamp(lty, 0.10, 0.38)
+    ltz = clamp(ltz, -0.10, 0.50)
+
+    rtx = clamp(rtx, 0.15, 0.45)
+    rty = clamp(rty, -0.38, -0.10)
+    rtz = clamp(rtz, -0.10, 0.50)
+
+    torso_h = clamp(torso_h, 0.50, 0.95)
+
+    # Mild action smoothing for arm and torso targets
+    alpha_root = 0.65
+    alpha_arm = 0.45
+
+    cmd_vx = alpha_root * cmd_vx + (1 - alpha_root) * last_action[:, 0]
+    cmd_vy = alpha_root * cmd_vy + (1 - alpha_root) * last_action[:, 1]
+    cmd_wz = alpha_root * cmd_wz + (1 - alpha_root) * last_action[:, 2]
+
+    ltx = alpha_arm * ltx + (1 - alpha_arm) * last_action[:, 3]
+    lty = alpha_arm * lty + (1 - alpha_arm) * last_action[:, 4]
+    ltz = alpha_arm * ltz + (1 - alpha_arm) * last_action[:, 5]
+
+    rtx = alpha_arm * rtx + (1 - alpha_arm) * last_action[:, 6]
+    rty = alpha_arm * rty + (1 - alpha_arm) * last_action[:, 7]
+    rtz = alpha_arm * rtz + (1 - alpha_arm) * last_action[:, 8]
+
+    torso_h = alpha_arm * torso_h + (1 - alpha_arm) * last_action[:, 9]
+
+    # Final clamp after smoothing
+    action[:, 0] = clamp(cmd_vx, -0.6, 1.0)
+    action[:, 1] = clamp(cmd_vy, -0.5, 0.5)
+    action[:, 2] = clamp(cmd_wz, -1.0, 1.0)
+
+    action[:, 3] = clamp(ltx, 0.15, 0.45)
+    action[:, 4] = clamp(lty, 0.10, 0.38)
+    action[:, 5] = clamp(ltz, -0.10, 0.50)
+
+    action[:, 6] = clamp(rtx, 0.15, 0.45)
+    action[:, 7] = clamp(rty, -0.38, -0.10)
+    action[:, 8] = clamp(rtz, -0.10, 0.50)
+
+    action[:, 9] = clamp(torso_h, 0.50, 0.95)
+
+    return action, policy_state

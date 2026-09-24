@@ -1,0 +1,283 @@
+def policy_code(observation, policy_state):
+    num_envs = observation.shape[0]
+    device = observation.device
+    dtype = observation.dtype
+
+    if policy_state is None:
+        policy_state = {
+            "needs_init": torch.ones(num_envs, dtype=torch.bool, device=device),
+            "phase": torch.zeros(num_envs, dtype=torch.long, device=device),   # 0: gate1 approach, 1: gate1 pass, 2: gate2 approach, 3: gate2 pass, 4: goal
+            "side_sign": torch.ones(num_envs, dtype=dtype, device=device),     # +1 left-facing, -1 right-facing when sideways
+            "filtered_gate_y": torch.zeros(num_envs, 2, dtype=dtype, device=device),
+            "yaw_hold": torch.zeros(num_envs, dtype=dtype, device=device),
+            "prev_root_x": torch.zeros(num_envs, dtype=dtype, device=device),
+            "stuck_count": torch.zeros(num_envs, dtype=torch.long, device=device),
+            "retry_mode": torch.zeros(num_envs, dtype=torch.bool, device=device),
+        }
+
+    reset_mask = policy_state["needs_init"]
+    if torch.any(reset_mask):
+        policy_state["phase"][reset_mask] = 0
+        policy_state["side_sign"][reset_mask] = 1.0
+        policy_state["filtered_gate_y"][reset_mask, 0] = observation[reset_mask, 13]
+        policy_state["filtered_gate_y"][reset_mask, 1] = observation[reset_mask, 14]
+        policy_state["yaw_hold"][reset_mask] = 0.0
+        policy_state["prev_root_x"][reset_mask] = observation[reset_mask, 0]
+        policy_state["stuck_count"][reset_mask] = 0
+        policy_state["retry_mode"][reset_mask] = False
+    policy_state["needs_init"][reset_mask] = False
+
+    # Parse observation
+    root_x = observation[:, 0]
+    root_y = observation[:, 1]
+    yaw = observation[:, 2]
+    v_local_x = observation[:, 3]
+    v_local_y = observation[:, 4]
+    yaw_rate = observation[:, 5]
+    gate1_y_obs = observation[:, 13]
+    gate2_y_obs = observation[:, 14]
+
+    # Smooth gate centers a bit
+    alpha = 0.15
+    policy_state["filtered_gate_y"][:, 0] = (1.0 - alpha) * policy_state["filtered_gate_y"][:, 0] + alpha * gate1_y_obs
+    policy_state["filtered_gate_y"][:, 1] = (1.0 - alpha) * policy_state["filtered_gate_y"][:, 1] + alpha * gate2_y_obs
+    gate1_y = policy_state["filtered_gate_y"][:, 0]
+    gate2_y = policy_state["filtered_gate_y"][:, 1]
+
+    gate1_x = torch.full((num_envs,), -1.67, device=device, dtype=dtype)
+    gate2_x = torch.full((num_envs,),  1.67, device=device, dtype=dtype)
+    goal_x = torch.full((num_envs,),   4.50, device=device, dtype=dtype)
+
+    phase = policy_state["phase"]
+
+    # Phase transitions
+    gate1_ready = (torch.abs(root_y - gate1_y) < 0.08) & (root_x > -2.30)
+    gate1_cleared = root_x > -1.05
+    gate2_ready = (torch.abs(root_y - gate2_y) < 0.05) & (root_x > 1.05)
+    gate2_cleared = root_x > 2.00
+    phase = torch.where((phase == 0) & gate1_ready, torch.ones_like(phase), phase)
+    phase = torch.where((phase == 1) & gate1_cleared, 2 * torch.ones_like(phase), phase)
+    phase = torch.where((phase == 2) & gate2_ready, 3 * torch.ones_like(phase), phase)
+    phase = torch.where((phase == 3) & gate2_cleared, 4 * torch.ones_like(phase), phase)
+    policy_state["phase"] = phase
+    policy_state["retry_mode"] = torch.where(inferred := (phase == 1) | (phase == 3), policy_state["retry_mode"], torch.zeros_like(policy_state["retry_mode"]))
+
+    # Helpers
+    def wrap_to_pi(a):
+        return torch.atan2(torch.sin(a), torch.cos(a))
+
+    def clamp(x, lo, hi):
+        return torch.clamp(x, lo, hi)
+
+    # Target waypoint selection
+    target_x = torch.empty(num_envs, device=device, dtype=dtype)
+    target_y = torch.empty(num_envs, device=device, dtype=dtype)
+    desired_yaw = torch.zeros(num_envs, device=device, dtype=dtype)
+    torso_height_cmd = torch.full((num_envs,), 0.88, device=device, dtype=dtype)
+
+    # Approach gate 1 from the side corridor, not straight through.
+    mask0 = phase == 0
+    # Passing gate 1 sideways.
+    mask1 = phase == 1
+    # Approach gate 2 after clearing gate 1.
+    mask2 = phase == 2
+    # Passing gate 2 sideways.
+    mask3 = phase == 3
+    # Final sprint to goal.
+    mask4 = phase == 4
+
+    # Phase 0: stay west of gate 1 until aligned to opening center.
+    target_x[mask0] = -2.15
+    target_y[mask0] = gate1_y[mask0]
+    desired_yaw[mask0] = 0.0
+
+    # Choose sideways direction based on current offset when preparing for each gate.
+    prep1 = mask0 & (torch.abs(root_y - gate1_y) < 0.18) & (root_x > -2.45)
+    side1 = torch.where((root_y - gate1_y) >= 0.0, -torch.ones_like(root_y), torch.ones_like(root_y))
+    policy_state["side_sign"] = torch.where(prep1, side1, policy_state["side_sign"])
+
+    # Phase 1: pass gate 1 with body turned sideways and centered in y.
+    target_x[mask1] = -1.20
+    target_y[mask1] = gate1_y[mask1]
+    desired_yaw[mask1] = policy_state["side_sign"][mask1] * (math.pi / 2.0)
+    torso_height_cmd[mask1] = 0.84
+
+    # While in gate passage, hold chosen sideways yaw.
+    policy_state["yaw_hold"] = torch.where(mask1, desired_yaw, policy_state["yaw_hold"])
+
+    # Phase 2: move toward a staging point before gate 2 and re-face east.
+    target_x[mask2] = 1.15
+    target_y[mask2] = gate2_y[mask2]
+    desired_yaw[mask2] = 0.0
+
+    prep2 = mask2 & (torch.abs(root_y - gate2_y) < 0.18) & (root_x > 0.55)
+    side2 = torch.where((root_y - gate2_y) >= 0.0, -torch.ones_like(root_y), torch.ones_like(root_y))
+    policy_state["side_sign"] = torch.where(prep2, side2, policy_state["side_sign"])
+
+    # Phase 3: pass gate 2 sideways.
+    target_x[mask3] = 2.10
+    target_y[mask3] = gate2_y[mask3]
+    desired_yaw[mask3] = policy_state["side_sign"][mask3] * (math.pi / 2.0)
+    torso_height_cmd[mask3] = 0.84
+    policy_state["yaw_hold"] = torch.where(mask3, desired_yaw, policy_state["yaw_hold"])
+
+    # Phase 4: go to goal, face east.
+    target_x[mask4] = goal_x[mask4]
+    target_y[mask4] = 0.0
+    desired_yaw[mask4] = 0.0
+
+    # World-frame position error
+    dx = target_x - root_x
+    dy = target_y - root_y
+
+    # If retrying a gate, first back out to a clean west-side staging point, re-center, and face east.
+    retry_active = (mask1 | mask3) & policy_state["retry_mode"]
+    retry_target_x = torch.where(mask1, torch.full_like(root_x, -2.20), torch.full_like(root_x, 1.10))
+    retry_target_y = torch.where(mask1, gate1_y, gate2_y)
+    target_x = torch.where(retry_active, retry_target_x, target_x)
+    target_y = torch.where(retry_active, retry_target_y, target_y)
+    desired_yaw = torch.where(retry_active, torch.zeros_like(desired_yaw), desired_yaw)
+    torso_height_cmd = torch.where(retry_active, torch.full_like(torso_height_cmd, 0.86), torso_height_cmd)
+
+    dx = target_x - root_x
+    dy = target_y - root_y
+
+    # Convert desired planar velocity from world to local frame
+    # local x = forward, local y = left
+    cos_yaw = torch.cos(yaw)
+    sin_yaw = torch.sin(yaw)
+    vx_des_world = clamp(0.9 * dx, -0.6, 1.0)
+    vy_des_world = clamp(1.2 * dy, -0.5, 0.5)
+
+    vx_local = cos_yaw * vx_des_world + sin_yaw * vy_des_world
+    vy_local = -sin_yaw * vx_des_world + cos_yaw * vy_des_world
+
+    # Yaw control
+    yaw_err = wrap_to_pi(desired_yaw - yaw)
+    wz_cmd = clamp(1.8 * yaw_err - 0.15 * yaw_rate, -1.0, 1.0)
+
+    # When sideways in a gate, prioritize orientation and centering, limit forward aggression.
+    in_gate = mask1 | mask3
+    vx_local = torch.where(in_gate, clamp(vx_local, -0.15, 0.55), vx_local)
+    vy_local = torch.where(in_gate, clamp(vy_local, -0.30, 0.30), vy_local)
+
+    # During gate passage, explicitly strafe through the opening while holding tight y-centering.
+    gate_y_err = torch.where(mask1, gate1_y - root_y, gate2_y - root_y)
+    # For yaw = +pi/2, world +x corresponds to local y = -1; for yaw = -pi/2, local y = +1.
+    aligned_for_commit = in_gate & (torch.abs(yaw_err) < 0.22) & (torch.abs(gate_y_err) < 0.05)
+    through_gate_vy = torch.where(
+        aligned_for_commit,
+        -0.48 * policy_state["side_sign"],
+        -0.14 * policy_state["side_sign"],
+    )
+    center_correction_vx = clamp(2.0 * gate_y_err * policy_state["side_sign"], -0.18, 0.18)
+    vx_local = torch.where(in_gate, center_correction_vx, vx_local)
+    vy_local = torch.where(in_gate, through_gate_vy, vy_local)
+
+    # In retry mode, disable sideways push and just execute the clean re-approach.
+    vx_local = torch.where(retry_active, vx_local, vx_local)
+    vy_local = torch.where(retry_active, vy_local, vy_local)
+
+    # If yaw error is large, slow down translation to avoid clipping posts.
+    yaw_slow = clamp(1.0 - torch.abs(yaw_err) / 1.2, 0.15, 1.0)
+    vx_local = vx_local * yaw_slow
+    vy_local = vy_local * yaw_slow
+
+    # Once mostly turned sideways, allow stronger committed motion through the gate.
+    sideways_ready = in_gate & (torch.abs(yaw_err) < 0.20) & (torch.abs(gate_y_err) < 0.05)
+    vx_local = torch.where(sideways_ready, vx_local / yaw_slow, vx_local)
+    vy_local = torch.where(sideways_ready, vy_local / yaw_slow, vy_local)
+
+    # Simple stuck detection/recovery during gate passage: if x progress stalls while commanding motion,
+    # tighten re-centering and push through more decisively.
+    x_progress = root_x - policy_state["prev_root_x"]
+    stalled = in_gate & (torch.abs(x_progress) < 0.0025) & (torch.abs(vy_local) > 0.20)
+    policy_state["stuck_count"] = torch.where(
+        stalled,
+        policy_state["stuck_count"] + 1,
+        torch.where(in_gate, torch.clamp(policy_state["stuck_count"] - 1, min=0), torch.zeros_like(policy_state["stuck_count"]))
+    )
+    trigger_retry = in_gate & (~policy_state["retry_mode"]) & (policy_state["stuck_count"] > 55)
+    policy_state["retry_mode"] = torch.where(trigger_retry, torch.ones_like(policy_state["retry_mode"]), policy_state["retry_mode"])
+    policy_state["side_sign"] = torch.where(trigger_retry, -policy_state["side_sign"], policy_state["side_sign"])
+    policy_state["stuck_count"] = torch.where(trigger_retry, torch.zeros_like(policy_state["stuck_count"]), policy_state["stuck_count"])
+
+    retry_done_gate1 = (phase == 1) & policy_state["retry_mode"] & (root_x < -2.05) & (torch.abs(root_y - gate1_y) < 0.06) & (torch.abs(wrap_to_pi(-yaw)) < 0.18)
+    retry_done_gate2 = (phase == 3) & policy_state["retry_mode"] & (root_x < 1.20) & (torch.abs(root_y - gate2_y) < 0.06) & (torch.abs(wrap_to_pi(-yaw)) < 0.18)
+    retry_done = retry_done_gate1 | retry_done_gate2
+    policy_state["retry_mode"] = torch.where(retry_done, torch.zeros_like(policy_state["retry_mode"]), policy_state["retry_mode"])
+
+    stuck_recover = in_gate & (policy_state["stuck_count"] > 35) & (~policy_state["retry_mode"])
+    recover_vx = clamp(2.8 * gate_y_err * policy_state["side_sign"], -0.28, 0.28)
+    recover_vy = -0.50 * policy_state["side_sign"]
+    vx_local = torch.where(stuck_recover, recover_vx, vx_local)
+    vy_local = torch.where(stuck_recover, recover_vy, vy_local)
+    torso_height_cmd = torch.where(stuck_recover, torch.full_like(torso_height_cmd, 0.80), torso_height_cmd)
+
+    # While retrying, explicitly back out/re-center instead of continuing sideways contact.
+    retry_vx_world = clamp(0.9 * dx, -0.45, 0.35)
+    retry_vy_world = clamp(1.4 * dy, -0.35, 0.35)
+    retry_vx_local = cos_yaw * retry_vx_world + sin_yaw * retry_vy_world
+    retry_vy_local = -sin_yaw * retry_vx_world + cos_yaw * retry_vy_world
+    vx_local = torch.where(retry_active, retry_vx_local, vx_local)
+    vy_local = torch.where(retry_active, retry_vy_local, vy_local)
+    wz_cmd = torch.where(retry_active, clamp(1.8 * wrap_to_pi(-yaw) - 0.15 * yaw_rate, -1.0, 1.0), wz_cmd)
+
+    # Final goal slow-down
+    near_goal = mask4 & (goal_x - root_x < 0.6)
+    vx_local = torch.where(near_goal, clamp(0.7 * (goal_x - root_x), 0.0, 0.45), vx_local)
+    vy_local = torch.where(near_goal, clamp(-1.0 * root_y, -0.25, 0.25), vy_local)
+    wz_cmd = torch.where(near_goal, clamp(1.5 * wrap_to_pi(-yaw), -0.8, 0.8), wz_cmd)
+
+    # Arm posture:
+    # - Normal walking: arms moderately forward and narrow.
+    # - In gate passage: pull arms inward and slightly forward to reduce effective width.
+    left_x = torch.full((num_envs,), 0.26, device=device, dtype=dtype)
+    left_y = torch.full((num_envs,), 0.16, device=device, dtype=dtype)
+    left_z = torch.full((num_envs,), 0.18, device=device, dtype=dtype)
+    right_x = torch.full((num_envs,), 0.26, device=device, dtype=dtype)
+    right_y = torch.full((num_envs,), -0.16, device=device, dtype=dtype)
+    right_z = torch.full((num_envs,), 0.18, device=device, dtype=dtype)
+
+    left_x = torch.where(in_gate, torch.full_like(left_x, 0.18), left_x)
+    left_y = torch.where(in_gate, torch.full_like(left_y, 0.10), left_y)
+    left_z = torch.where(in_gate, torch.full_like(left_z, 0.28), left_z)
+    right_x = torch.where(in_gate, torch.full_like(right_x, 0.18), right_x)
+    right_y = torch.where(in_gate, torch.full_like(right_y, -0.10), right_y)
+    right_z = torch.where(in_gate, torch.full_like(right_z, 0.28), right_z)
+
+    left_x = torch.where(retry_active, torch.full_like(left_x, 0.20), left_x)
+    left_y = torch.where(retry_active, torch.full_like(left_y, 0.12), left_y)
+    left_z = torch.where(retry_active, torch.full_like(left_z, 0.24), left_z)
+    right_x = torch.where(retry_active, torch.full_like(right_x, 0.20), right_x)
+    right_y = torch.where(retry_active, torch.full_like(right_y, -0.12), right_y)
+    right_z = torch.where(retry_active, torch.full_like(right_z, 0.24), right_z)
+
+    # Slightly more relaxed arms after gate 2.
+    post_gate = mask4
+    left_x = torch.where(post_gate, torch.full_like(left_x, 0.28), left_x)
+    left_y = torch.where(post_gate, torch.full_like(left_y, 0.18), left_y)
+    left_z = torch.where(post_gate, torch.full_like(left_z, 0.16), left_z)
+    right_x = torch.where(post_gate, torch.full_like(right_x, 0.28), right_x)
+    right_y = torch.where(post_gate, torch.full_like(right_y, -0.18), right_y)
+    right_z = torch.where(post_gate, torch.full_like(right_z, 0.16), right_z)
+
+    action = torch.stack(
+        [
+            clamp(vx_local, -0.6, 1.0),
+            clamp(vy_local, -0.5, 0.5),
+            clamp(wz_cmd, -1.0, 1.0),
+            clamp(left_x, 0.15, 0.45),
+            clamp(left_y, 0.10, 0.38),
+            clamp(left_z, -0.1, 0.5),
+            clamp(right_x, 0.15, 0.45),
+            clamp(right_y, -0.38, -0.10),
+            clamp(right_z, -0.1, 0.5),
+            clamp(torso_height_cmd, 0.5, 0.95),
+        ],
+        dim=-1,
+    )
+
+    policy_state["prev_root_x"] = root_x.clone()
+
+    return action, policy_state
