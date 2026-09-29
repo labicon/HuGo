@@ -29,14 +29,25 @@
   href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
   <link rel="stylesheet"
   href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
-  <link rel="stylesheet" href="static/css/index.css">
+  <link rel="stylesheet" href="static/css/index.css?v=6">
 
   <script defer src="static/js/fontawesome.all.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
-  <script defer src="static/js/index.js"></script>
+  <script defer src="static/js/index.js?v=6"></script>
 </head>
 <body>
+
+  <nav class="toc" aria-label="Table of contents">
+    <ul>
+      <li><a href="#tldr">TL;DR</a></li>
+      <li><a href="#method">Method</a></li>
+      <li><a href="#zero-shot">Zero-Shot Transfer</a></li>
+      <li><a href="#refinement">Refinement on Hardware</a></li>
+      <li><a href="#simulation">Simulation Results</a></li>
+      <li><a href="#BibTeX">BibTeX</a></li>
+    </ul>
+  </nav>
 
   <div class="corner-logo" style="left: 0;">
     <a href="https://www.berkeley.edu/" target="_blank">
@@ -68,7 +79,7 @@
                 Nicholas Bui<sup>1</sup>,
               </span>
               <span class="author-block">
-                Aayushi Shrivastava<sup>1</sup>,
+                <a href="https://sites.google.com/view/aayushishrivastava/home" target="_blank">Aayushi Shrivastava</a><sup>1</sup>,
               </span>
               <span class="author-block">
                 <a href="https://kh-ryu.github.io/" target="_blank">Kanghyun Ryu</a><sup>1</sup>,
@@ -97,13 +108,14 @@
 
             <div class="column has-text-centered">
               <div class="publication-links">
-                <!-- ArXiv abstract link: replace href and label once the preprint is out -->
+                <!-- ArXiv abstract link -->
                 <span class="link-block">
-                  <a class="external-link button is-normal is-rounded is-dark" disabled>
+                  <a href="https://arxiv.org/abs/2609.30594" target="_blank"
+                  class="external-link button is-normal is-rounded is-dark">
                     <span class="icon">
                       <i class="ai ai-arxiv"></i>
                     </span>
-                    <span>arXiv (Coming soon)</span>
+                    <span>arXiv</span>
                   </a>
                 </span>
 
@@ -126,37 +138,31 @@
   </section>
 
 
-<!-- Paper abstract -->
-<section class="section hero is-light">
+<!-- TL;DR, with the paper abstract folded underneath -->
+<section class="section hero is-light" id="tldr">
   <div class="container is-max-desktop">
     <div class="columns is-centered has-text-centered">
       <div class="column is-four-fifths">
-        <h2 class="title is-3">Abstract</h2>
+        <h2 class="title is-3">TL;DR</h2>
         <div class="content has-text-justified">
           <p>
-            For humanoids to be useful in everyday environments, they must perform a wide range of tasks that couple locomotion and manipulation.
-            Existing approaches commonly acquire a loco-manipulation policy through reward engineering or demonstrations followed by task-specific training,
-            making it costly to scale to new tasks. In this work, we propose a hierarchical approach to humanoid loco-manipulation that eliminates these per-task requirements.<br><br>
-
-            <b>HuGo</b>, <b>Hu</b>manoid policy code <b>G</b>eneration, uses a Large Language Model (LLM) to generate executable, closed-loop high-level policy code
-            from a task description on top of a frozen low-level whole-body policy. Given the task, observation, and command specifications, the LLM constructs the task logic in code.
-            HuGo then refines the policy from its rollouts using numerical trajectories and selected video frames to produce feedback and targeted code updates.<br><br>
-
-            Across five simulation tasks, using two different low-level policies, HuGo substantially outperforms a high-level reinforcement learning baseline
-            and approaches the performance of a demonstration-based baseline. We achieve this level of performance without task-specific reward design or demonstration collection.
-            We further demonstrate zero-shot transfer of simulation-generated policies to hardware and show that applying the same refinement loop to real-world rollouts
-            can further improve transfer performance without expert demonstrations or policy retraining.
+            Instead of engineering a reward or collecting demonstrations for each new task, an LLM
+            writes the policy code itself. From a task description and the observation and command specifications,
+            <b>HuGo</b>, <span class="tldr-em">Hu</span>manoid policy code <span class="tldr-em">G</span>enerati<span class="tldr-em">o</span>n, generates <b>closed-loop high-level policy code</b>
+            that runs on top of a frozen low-level whole-body controller.
+            HuGo then improves that code by <b>analyzing its own rollouts</b>, in simulation and also directly on hardware.
           </p>
         </div>
+
       </div>
     </div>
   </div>
 </section>
-<!-- End paper abstract -->
+<!-- End TL;DR -->
 
 
 <!-- Method video -->
-<section class="section hero">
+<section class="section hero" id="method">
   <div class="container is-max-desktop">
     <h2 class="title is-3 has-text-centered">Method</h2>
     <video poster="static/images/method_poster.jpg" id="method-video" controls muted playsinline preload="metadata" width="100%">
@@ -186,8 +192,598 @@
 <!-- End method video -->
 
 
+<!-- Zero-shot transfer -->
+<section class="section hero is-light" id="zero-shot">
+  <div class="container is-max-desktop sim-container">
+    <h2 class="title is-3 has-text-centered">Zero-Shot Transfer</h2>
+    <!--
+    <div class="content has-text-justified">
+      <p>
+        High-level policies run on a Unitree G1 using the same frozen <code>sonic</code> low-level policy as in
+        simulation, with the observation built from a motion capture system. The observation and command
+        specifications match those used in simulation, so the generated policy code runs on hardware
+        <em>without modification</em>.
+      </p>
+    </div>
+    -->
+
+        <!--
+    <div class="content has-text-justified">
+      <p>
+        The two tasks that fit the hardware workspace are evaluated first, with no refinement at all. For each task
+        the three policy codes with the highest simulation success rate are deployed and run for 15 trials, using the
+        same initial conditions for every policy. Below is the best-performing policy for each task across different
+        initial conditions, which it handles without any change between trials.
+      </p>
+    </div>
+    -->
+
+    <div class="hw-zs">
+      <div class="hw-zs-task">
+        <div class="hw-zs-head">
+          <span class="hw-zs-name">Push button</span>
+          <span class="hw-zs-sr">93.3%</span>
+          <span class="hw-zs-sub">of 15 trials, best policy</span>
+        </div>
+        <div class="video-strip is-three is-portrait">
+          <figure class="strip-item">
+            <video muted loop playsinline preload="metadata" src="static/hardware/push_button/ep_0.mp4"></video>
+            <figcaption>Trial 1</figcaption>
+          </figure>
+          <figure class="strip-item">
+            <video muted loop playsinline preload="metadata" src="static/hardware/push_button/ep_1.mp4"></video>
+            <figcaption>Trial 2</figcaption>
+          </figure>
+          <figure class="strip-item">
+            <video muted loop playsinline preload="metadata" src="static/hardware/push_button/ep_2.mp4"></video>
+            <figcaption>Trial 3</figcaption>
+          </figure>
+        </div>
+      </div>
+
+      <div class="hw-zs-task">
+        <div class="hw-zs-head">
+          <span class="hw-zs-name">Lift box</span>
+          <span class="hw-zs-sr">66.7%</span>
+          <span class="hw-zs-sub">of 15 trials, best policy</span>
+        </div>
+        <div class="video-strip is-three">
+          <figure class="strip-item">
+            <video muted loop playsinline preload="metadata" src="static/hardware/lift_box/ep_0.mp4"></video>
+            <figcaption>Trial 1</figcaption>
+          </figure>
+          <figure class="strip-item">
+            <video muted loop playsinline preload="metadata" src="static/hardware/lift_box/ep_1.mp4"></video>
+            <figcaption>Trial 2</figcaption>
+          </figure>
+          <figure class="strip-item">
+            <video muted loop playsinline preload="metadata" src="static/hardware/lift_box/ep_2.mp4"></video>
+            <figcaption>Trial 3</figcaption>
+          </figure>
+        </div>
+      </div>
+    </div>
+
+      </div>
+</section>
+<!-- End zero-shot transfer -->
+
+<!-- Refinement on hardware -->
+<section class="section hero" id="refinement">
+  <div class="container is-max-desktop sim-container">
+    <h2 class="title is-3 has-text-centered">Refinement on Hardware</h2>
+    <!--
+    <div class="content has-text-justified">
+      <p>
+        A policy generated entirely in simulation is deployed zero-shot to a Unitree G1 pressing a physical button,
+        and then the <em>same</em> refinement loop is run on the real rollouts. Nothing is retrained and no
+        expert demonstration is collected: each round observes one real-world rollout, diagnoses what went wrong,
+        and proposes a code diff to the current policy code.
+      </p>
+    </div>
+    -->
+
+    <div class="hw-headline">
+      <div class="hw-headline-stat"><span class="hw-from">20%</span><span class="hw-to-arrow">&rarr;</span><span class="hw-to">90%</span></div>
+      <div class="hw-headline-sub">3 refinement depths &middot; 4 rounds &middot; 55 real rollouts &middot; no retraining, no demonstrations</div>
+    </div>
+
+    <div class="hw-tree">
+      <div class="hw-flow">
+
+        <div class="hw-group">
+          <div class="hw-group-label">In simulation</div>
+          <div class="hw-group-body">
+            <div class="hw-node"><span class="hw-node-sr">90%</span><span class="hw-node-id">sim policy</span><span class="hw-node-tag">generated &amp; refined in IsaacSim</span></div>
+          </div>
+        </div>
+
+        <div class="hw-divider" aria-hidden="true"></div>
+
+        <div class="hw-group">
+          <div class="hw-group-label">On hardware</div>
+          <div class="hw-group-body">
+            <div class="hw-node"><span class="hw-node-sr">20%</span><span class="hw-node-id">depth_0</span><span class="hw-node-tag">deployed zero-shot</span></div>
+
+            <div class="hw-conn hw-fork" aria-hidden="true">
+              <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+                <path d="M0 50 H38 M38 22 V78 M38 22 H100 M38 78 H100" vector-effect="non-scaling-stroke"/>
+              </svg>
+            </div>
+
+            <div class="hw-branches">
+              <div class="hw-node is-dropped">
+                <span class="hw-node-sr">10%</span><span class="hw-node-id">depth_1_0 &middot; dropped</span>
+                <span class="hw-node-tag">3 cm closer, much stricter press gate</span>
+              </div>
+              <div class="hw-node is-kept">
+                <span class="hw-node-sr">50%</span><span class="hw-node-id">depth_1_1</span>
+                <span class="hw-node-tag">5 cm closer, forward-reach gate</span>
+              </div>
+            </div>
+
+            <div class="hw-conn hw-join" aria-hidden="true">
+              <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+                <path d="M0 78 H55 M55 78 V50 M55 50 H100" vector-effect="non-scaling-stroke"/>
+              </svg>
+            </div>
+
+            <div class="hw-node is-kept"><span class="hw-node-sr">60%</span><span class="hw-node-id">depth_2_0</span><span class="hw-node-tag">+3 cm press margin, 1.4 s hold</span></div>
+            <div class="hw-edge">&rarr;</div>
+            <div class="hw-node is-kept is-final"><span class="hw-node-sr">90%</span><span class="hw-node-id">depth_3_0</span><span class="hw-node-tag">+4.5 cm press margin, 1.8 s hold</span></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+    <p class="hw-caption">
+      The same policy that reaches 90% in simulation drops to 20% on the real robot. Three refinement depths on
+      real rollouts recover it. A depth may take several rounds: the first round from <code>depth_0</code> produced a
+      candidate that scored <em>worse</em>, so it was not accepted, and the next round proposed a different
+      modification to the same current policy with that failure kept in the history.
+    </p>
+
+    <!-- Press-margin / press-hold table. Commented out, not deleted.
+    <h3 class="title is-5" style="margin-top: 2.5rem;">What the loop actually changed</h3>
+    <div class="content has-text-justified">
+      <p>
+        Across all three depths the fix converges on the same physical insight &mdash; the real arm undershoots its
+        commanded target by a few centimetres, which simulation never showed &mdash; and the LLM compensates by
+        tracking two constants in the code it wrote itself.
+      </p>
+    </div>
+    <div class="table-container">
+      <table class="table is-fullwidth is-narrow hw-table">
+        <thead><tr><th>Current policy</th><th>Shortfall in <em>D</em></th><th>Press margin</th><th>Press hold</th><th>Accepted candidate</th></tr></thead>
+        <tbody>
+          <tr><td>depth_0 &middot; 20%</td><td>hand at forward reach limit</td><td>&mdash;</td><td>1.0 s</td><td>50%</td></tr>
+          <tr><td>depth_1_1 &middot; 50%</td><td>0.041 m under the press target</td><td>0.030 m</td><td>1.4 s</td><td>60%</td></tr>
+          <tr><td>depth_2_0 &middot; 60%</td><td>0.023 m under the press target</td><td>0.045 m</td><td>1.8 s</td><td><b>90%</b></td></tr>
+        </tbody>
+      </table>
+    </div>
+    -->
+
+    <h3 class="title is-5" style="margin-top: 2.5rem;">The full refinement trace</h3>
+    <div class="content has-text-justified">
+      <p>
+        <!-- Refinement is organized into <b>depths</b> and <b>rounds</b>: a depth is one improvement over the policy it
+        starts from, and is given up to three rounds to find one. Each round analyses exactly one rollout and proposes
+        exactly one code diff, so every round below has the same five stages. Three depths and four rounds ran on
+        hardware. Open a stage to see the artifact it produced. -->
+        Three depths of refinement, which took total of four rounds, ran on hardware. Open a stage to see the artifact it produced.
+      </p>
+    </div>
+    <div class="task-viewer hw-viewer" data-group="hardware">
+      <div class="tabs is-toggle is-centered is-small">
+        <ul>
+          <li class="is-active" data-task="p1"><a>depth_1_0</a></li>
+          <li data-task="p2"><a>depth_1_1</a></li>
+          <li data-task="p3"><a>depth_2_0</a></li>
+          <li data-task="p4"><a>depth_3_0</a></li>
+        </ul>
+      </div>
+      <div class="task-panel is-active" data-task="p1">
+        <div class="hw-pass-banner">
+          <div class="hw-pass-meta">Depth 1 &middot; round 0 &middot; candidate not accepted</div>
+          <div class="hw-pass-head">
+            <span class="hw-pass-node">depth_0 <b>20%</b></span>
+            <span class="hw-pass-arrow">&rarr;</span>
+            <span class="hw-pass-node">depth_1_0 <b>10%</b></span>
+          </div>
+          <p class="hw-pass-note">The zero-shot policy is the current policy. This round&rsquo;s diff tightens the stance and the press gate together, and the candidate scores below the current policy, so it is not accepted.</p>
+        </div>
+        <ol class="hw-chain">
+          <li class="hw-stage">
+            <details class="hw-stage-fold">
+              <summary class="hw-stage-title"><span class="hw-stage-num">1</span>Hardware rollout</summary>
+              <div class="hw-stage-body">
+                <p>15 episodes on the Unitree G1, 3 / 15 successful (<b>20%</b>). One rollout <em>R</em> is the only evidence this round reasons over &mdash; no demonstrations, no reward, no retraining.</p>
+                <figure class="hw-video">
+                  <video muted loop playsinline preload="none" src="static/hardware_refinement/iter_0/video/iter_0.mp4"></video>
+                  <figcaption>depth_0 rollout &middot; 20% success</figcaption>
+                </figure>
+              </div>
+            </details>
+          </li>
+          <li class="hw-stage">
+            <details class="hw-stage-fold">
+              <summary class="hw-stage-title"><span class="hw-stage-num">2</span>The LLM writes its own analysis code</summary>
+              <div class="hw-stage-body">
+                <p>The LLM generates an executable analysis function <em>f</em><sub>analyze</sub>, written for this rollout and this policy rather than fixed in advance. Applied to the complete trajectory it returns a numerical summary <em>D</em> and task-relevant keyframe indices <em>k</em><sub>key</sub>.</p>
+                <details class="file-view" data-src="static/hardware_refinement/iter_0/llm_evaluate_rollout/call1_analyze/analysis_code.py" data-lang="python">
+                  <summary>analysis_code.py</summary>
+                  <pre><code>Loading&hellip;</code></pre>
+                </details>
+                <p><em>D</em> is at most 200 words of quantities and events the LLM judged useful &mdash; distance extrema, threshold crossings, tracking errors, internal-state transitions. Here it reports a planned press point 0.44 m forward against a realized reach of 0.409 m.</p>
+                <details class="file-view" data-src="static/hardware_refinement/iter_0/llm_evaluate_rollout/call1_analyze/analysis_output.txt">
+                  <summary>analysis_output.txt</summary>
+                  <pre><code>Loading&hellip;</code></pre>
+                </details>
+              </div>
+            </details>
+          </li>
+          <li class="hw-stage">
+            <details class="hw-stage-fold">
+              <summary class="hw-stage-title"><span class="hw-stage-num">3</span>Keyframes handed for evaluation</summary>
+              <div class="hw-stage-body">
+                <p>Keyframes alone can miss the broader progression of a rollout, while evenly spaced frames can miss brief events such as a contact, so the two are combined under a fixed frame budget <em>B</em> = 10. When <em>f</em><sub>analyze</sub> returns fewer than <em>B</em> keyframes, the remaining slots are filled with evenly spaced frames, giving the indices <em>k</em>. Episode 2 here.</p>
+                <table class="table is-narrow hw-kf">
+                  <tbody>
+                    <tr><th><em>k</em><sub>key</sub> from <em>f</em><sub>analyze</sub> (8)</th><td><code>0, 36, 51, 101, 106, 229, 346, 371</code></td></tr>
+                    <tr><th>Evenly spaced fill (2)</th><td><code>167, 287</code></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          </li>
+          <li class="hw-stage">
+            <details class="hw-stage-fold">
+              <summary class="hw-stage-title"><span class="hw-stage-num">4</span>Feedback</summary>
+              <div class="hw-stage-body">
+                <p>From <em>D</em> and the frames at <em>k</em>, the LLM returns natural-language feedback <em>F</em> describing what occurred and the likely cause. It rests on this single rollout and has no access to the current policy&rsquo;s scalar success rate.</p>
+                <p class="hw-verbatim-label">Its <code>&lt;summary&gt;</code>, quoted in full:</p>
+                <blockquote class="hw-quote">
+                  <p>The policy’s intended strategy is straightforward: pick the arm corresponding to the button side, walk to a standing point offset in front of the button face, face into the pillar, move the active hand to a pre-press pose, then push inward and retract.</p>
+                  <p>In this rollout, that high-level plan mostly worked at the navigation level. The robot consistently used the left arm, approached the correct side of the pillar, reduced stand-point distance from 0.80 m to as low as 0.021 m, and achieved near-perfect yaw alignment. It entered the align and press phases multiple times, and the left hand came very close to the commanded press target, with minimum actual EE-to-target error of 0.018 m. Visually, the hand repeatedly reached the button area.</p>
+                  <p>But the task was not completed robustly. The controller cycled through approach/align/press/retract three times, ending still in press phase. That means it got close repeatedly without producing a decisive button actuation.</p>
+                  <p>The root cause is that the press geometry is too marginal. The policy declares “ready” too early and commands a press from a stance that is only barely reachable, often with the hand target near the forward action limit. Small pose errors then turn into contact errors, so the hand reaches near the button but not with reliable inward normal push.</p>
+                </blockquote>
+                <details class="file-view" data-src="static/hardware_refinement/iter_0/llm_evaluate_rollout/call2_evaluate/response.md">
+                  <summary>Full diagnosis (reasoning + summary)</summary>
+                  <pre><code>Loading&hellip;</code></pre>
+                </details>
+              </div>
+            </details>
+          </li>
+          <li class="hw-stage">
+            <details class="hw-stage-fold">
+              <summary class="hw-stage-title"><span class="hw-stage-num">5</span>Code diff applied, then re-run</summary>
+              <div class="hw-stage-body">
+                <p>Rather than regenerating the policy, the LLM proposes a localized diff &Delta; conditioned on the current policy code, preserving the logic that works and modifying only what <em>F</em> identifies as the fault. The candidate is then evaluated on the robot.</p>
+                <details class="file-view" data-src="static/hardware_refinement/iter_1_0/reasoning.md">
+                  <summary>Reasoning</summary>
+                  <pre><code>Loading&hellip;</code></pre>
+                </details>
+                <details class="file-view" data-src="static/hardware_refinement/iter_1_0/diff.txt" data-lang="diff">
+                  <summary>Diff</summary>
+                  <pre><code>Loading&hellip;</code></pre>
+                </details>
+                <details class="file-view" data-src="static/hardware_refinement/iter_1_0/policy_code.txt" data-lang="python">
+                  <summary>Resulting policy code</summary>
+                  <pre><code>Loading&hellip;</code></pre>
+                </details>
+                <figure class="hw-video">
+                  <video muted loop playsinline preload="none" src="static/hardware_refinement/iter_1_0/video/iter_1_0.mp4"></video>
+                  <figcaption>depth_1_0 rollout &middot; 10% success</figcaption>
+                </figure>
+              </div>
+            </details>
+          </li>
+        </ol>
+      </div>
+      <div class="task-panel" data-task="p2">
+        <div class="hw-pass-banner">
+          <div class="hw-pass-meta">Depth 1 &middot; round 1 &middot; candidate accepted</div>
+          <div class="hw-pass-head">
+            <span class="hw-pass-node">depth_1_0 <b>10%</b></span>
+            <span class="hw-pass-arrow">&rarr;</span>
+            <span class="hw-pass-node">depth_1_1 <b>50%</b></span>
+          </div>
+          <p class="hw-pass-note">The previous round&rsquo;s diff, success rate and feedback are kept in the history, so this round proposes a different modification to the <em>same</em> current policy, <code>depth_0</code>. The candidate improves on it, so it is accepted, becomes the current policy, and the history is cleared.</p>
+        </div>
+        <ol class="hw-chain">
+          <li class="hw-stage">
+            <details class="hw-stage-fold">
+              <summary class="hw-stage-title"><span class="hw-stage-num">1</span>Hardware rollout</summary>
+              <div class="hw-stage-body">
+                <p>10 episodes on the Unitree G1, 1 / 10 successful (<b>10%</b>). One rollout <em>R</em> is the only evidence this round reasons over &mdash; no demonstrations, no reward, no retraining.</p>
+                <figure class="hw-video">
+                  <video muted loop playsinline preload="none" src="static/hardware_refinement/iter_1_0/video/iter_1_0.mp4"></video>
+                  <figcaption>depth_1_0 rollout &middot; 10% success</figcaption>
+                </figure>
+              </div>
+            </details>
+          </li>
+          <li class="hw-stage">
+            <details class="hw-stage-fold">
+              <summary class="hw-stage-title"><span class="hw-stage-num">2</span>The LLM writes its own analysis code</summary>
+              <div class="hw-stage-body">
+                <p>The LLM generates an executable analysis function <em>f</em><sub>analyze</sub>, written for this rollout and this policy rather than fixed in advance. Applied to the complete trajectory it returns a numerical summary <em>D</em> and task-relevant keyframe indices <em>k</em><sub>key</sub>.</p>
+                <details class="file-view" data-src="static/hardware_refinement/iter_1_0/llm_evaluate_rollout/call1_analyze/analysis_code.py" data-lang="python">
+                  <summary>analysis_code.py</summary>
+                  <pre><code>Loading&hellip;</code></pre>
+                </details>
+                <p><em>D</em> is at most 200 words of quantities and events the LLM judged useful &mdash; distance extrema, threshold crossings, tracking errors, internal-state transitions. Here it reports a planned press point 0.44 m forward against a realized reach of 0.409 m.</p>
+                <details class="file-view" data-src="static/hardware_refinement/iter_1_0/llm_evaluate_rollout/call1_analyze/analysis_output.txt">
+                  <summary>analysis_output.txt</summary>
+                  <pre><code>Loading&hellip;</code></pre>
+                </details>
+              </div>
+            </details>
+          </li>
+          <li class="hw-stage">
+            <details class="hw-stage-fold">
+              <summary class="hw-stage-title"><span class="hw-stage-num">3</span>Keyframes handed for evaluation</summary>
+              <div class="hw-stage-body">
+                <p>Keyframes alone can miss the broader progression of a rollout, while evenly spaced frames can miss brief events such as a contact, so the two are combined under a fixed frame budget <em>B</em> = 10. When <em>f</em><sub>analyze</sub> returns fewer than <em>B</em> keyframes, the remaining slots are filled with evenly spaced frames, giving the indices <em>k</em>. Episode 6 here.</p>
+                <table class="table is-narrow hw-kf">
+                  <tbody>
+                    <tr><th><em>k</em><sub>key</sub> from <em>f</em><sub>analyze</sub> (8)</th><td><code>0, 15, 27, 69, 136, 172, 211, 242</code></td></tr>
+                    <tr><th>Evenly spaced fill (2)</th><td><code>48, 102</code></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          </li>
+          <li class="hw-stage">
+            <details class="hw-stage-fold">
+              <summary class="hw-stage-title"><span class="hw-stage-num">4</span>Feedback</summary>
+              <div class="hw-stage-body">
+                <p>From <em>D</em> and the frames at <em>k</em>, the LLM returns natural-language feedback <em>F</em> describing what occurred and the likely cause. It rests on this single rollout and has no access to the current policy&rsquo;s scalar success rate.</p>
+                <p class="hw-verbatim-label">Its <code>&lt;summary&gt;</code>, quoted in full:</p>
+                <blockquote class="hw-quote">
+                  <p>The policy’s intended strategy is a four-phase routine: choose the nearer/more appropriate arm, walk to an offset standing pose in front of the button, align the torso to face into the button, move the active hand to a pre-press pose, then advance to a press pose and retract.</p>
+                  <p>In this rollout, the navigation part worked well. The robot started already facing almost perfectly toward the button face, walked from 0.414 m away to within 0.010 m of its planned stand target, and reduced lateral hand alignment error from 0.320 to essentially zero. It transitioned through approach, align, press, retract, then attempted a second press. The left arm was chosen and repeatedly extended toward the button.</p>
+                  <p>The task still failed because the final press geometry was too marginal. At the best stance, the planned press point was about 0.44 m forward in the pelvis frame, while the observed left-hand forward reach only reached 0.409 m at best. Commanded hand targets matched the intended pre-press/press points closely, but the actual hand did not fully realize them. Since the button only responds to a true inward push on its face, this small reach/contact shortfall prevented successful activation.</p>
+                </blockquote>
+                <details class="file-view" data-src="static/hardware_refinement/iter_1_0/llm_evaluate_rollout/call2_evaluate/response.md">
+                  <summary>Full diagnosis (reasoning + summary)</summary>
+                  <pre><code>Loading&hellip;</code></pre>
+                </details>
+              </div>
+            </details>
+          </li>
+          <li class="hw-stage">
+            <details class="hw-stage-fold">
+              <summary class="hw-stage-title"><span class="hw-stage-num">5</span>Code diff applied, then re-run</summary>
+              <div class="hw-stage-body">
+                <p>Rather than regenerating the policy, the LLM proposes a localized diff &Delta; conditioned on the current policy code, preserving the logic that works and modifying only what <em>F</em> identifies as the fault. The candidate is then evaluated on the robot.</p>
+                <details class="file-view" data-src="static/hardware_refinement/iter_1_1/reasoning.md">
+                  <summary>Reasoning</summary>
+                  <pre><code>Loading&hellip;</code></pre>
+                </details>
+                <details class="file-view" data-src="static/hardware_refinement/iter_1_1/diff.txt" data-lang="diff">
+                  <summary>Diff</summary>
+                  <pre><code>Loading&hellip;</code></pre>
+                </details>
+                <details class="file-view" data-src="static/hardware_refinement/iter_1_1/policy_code.txt" data-lang="python">
+                  <summary>Resulting policy code</summary>
+                  <pre><code>Loading&hellip;</code></pre>
+                </details>
+                <figure class="hw-video">
+                  <video muted loop playsinline preload="none" src="static/hardware_refinement/iter_1_1/video/iter_1.mp4"></video>
+                  <figcaption>depth_1_1 rollout &middot; 50% success</figcaption>
+                </figure>
+              </div>
+            </details>
+          </li>
+        </ol>
+      </div>
+      <div class="task-panel" data-task="p3">
+        <div class="hw-pass-banner">
+          <div class="hw-pass-meta">Depth 2 &middot; round 0 &middot; candidate accepted</div>
+          <div class="hw-pass-head">
+            <span class="hw-pass-node">depth_1_1 <b>50%</b></span>
+            <span class="hw-pass-arrow">&rarr;</span>
+            <span class="hw-pass-node">depth_2_0 <b>60%</b></span>
+          </div>
+          <p class="hw-pass-note">A new depth begins from the accepted policy. With navigation solved, the feedback isolates a hardware-only effect: the real arm undershoots its commanded target.</p>
+        </div>
+        <ol class="hw-chain">
+          <li class="hw-stage">
+            <details class="hw-stage-fold">
+              <summary class="hw-stage-title"><span class="hw-stage-num">1</span>Hardware rollout</summary>
+              <div class="hw-stage-body">
+                <p>10 episodes on the Unitree G1, 5 / 10 successful (<b>50%</b>). One rollout <em>R</em> is the only evidence this round reasons over &mdash; no demonstrations, no reward, no retraining.</p>
+                <figure class="hw-video">
+                  <video muted loop playsinline preload="none" src="static/hardware_refinement/iter_1_1/video/iter_1.mp4"></video>
+                  <figcaption>depth_1_1 rollout &middot; 50% success</figcaption>
+                </figure>
+              </div>
+            </details>
+          </li>
+          <li class="hw-stage">
+            <details class="hw-stage-fold">
+              <summary class="hw-stage-title"><span class="hw-stage-num">2</span>The LLM writes its own analysis code</summary>
+              <div class="hw-stage-body">
+                <p>The LLM generates an executable analysis function <em>f</em><sub>analyze</sub>, written for this rollout and this policy rather than fixed in advance. Applied to the complete trajectory it returns a numerical summary <em>D</em> and task-relevant keyframe indices <em>k</em><sub>key</sub>.</p>
+                <details class="file-view" data-src="static/hardware_refinement/iter_1_1/llm_evaluate_rollout/call1_analyze/analysis_code.py" data-lang="python">
+                  <summary>analysis_code.py</summary>
+                  <pre><code>Loading&hellip;</code></pre>
+                </details>
+                <p><em>D</em> is at most 200 words of quantities and events the LLM judged useful &mdash; distance extrema, threshold crossings, tracking errors, internal-state transitions. Here it reports a hand XY error to the press target of 0.041 m at best, 0.048 m at the end.</p>
+                <details class="file-view" data-src="static/hardware_refinement/iter_1_1/llm_evaluate_rollout/call1_analyze/analysis_output.txt">
+                  <summary>analysis_output.txt</summary>
+                  <pre><code>Loading&hellip;</code></pre>
+                </details>
+              </div>
+            </details>
+          </li>
+          <li class="hw-stage">
+            <details class="hw-stage-fold">
+              <summary class="hw-stage-title"><span class="hw-stage-num">3</span>Keyframes handed for evaluation</summary>
+              <div class="hw-stage-body">
+                <p>Keyframes alone can miss the broader progression of a rollout, while evenly spaced frames can miss brief events such as a contact, so the two are combined under a fixed frame budget <em>B</em> = 10. When <em>f</em><sub>analyze</sub> returns fewer than <em>B</em> keyframes, the remaining slots are filled with evenly spaced frames, giving the indices <em>k</em>. Episode 7 here.</p>
+                <table class="table is-narrow hw-kf">
+                  <tbody>
+                    <tr><th><em>k</em><sub>key</sub> from <em>f</em><sub>analyze</sub> (10)</th><td><code>0, 4, 14, 16, 36, 65, 75, 86, 103, 147</code></td></tr>
+                    <tr><th>Evenly spaced fill</th><td><em>none &mdash; f</em><sub>analyze</sub><em> already returned B keyframes</em></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          </li>
+          <li class="hw-stage">
+            <details class="hw-stage-fold">
+              <summary class="hw-stage-title"><span class="hw-stage-num">4</span>Feedback</summary>
+              <div class="hw-stage-body">
+                <p>From <em>D</em> and the frames at <em>k</em>, the LLM returns natural-language feedback <em>F</em> describing what occurred and the likely cause. It rests on this single rollout and has no access to the current policy&rsquo;s scalar success rate.</p>
+                <p class="hw-verbatim-label">Its <code>&lt;summary&gt;</code>, quoted in full:</p>
+                <blockquote class="hw-quote">
+                  <p>The policy’s strategy is a four-phase sequence: walk to a stand point offset from the button, align body and hand laterally, move the active hand to a pre-press pose, then press for a fixed duration and retract. In this rollout it chose the right hand, walked from (0.380, 0.695) to a good stance near the pillar, reduced stand-target distance from 0.466 m to 0.046 m, and achieved good yaw and lateral alignment. It entered align at step 16 and press at step 36, then held a pressing posture before retracting at step 86.</p>
+                  <p>What actually happened is that navigation and gross positioning worked, but the button press itself did not complete. The commanded hand target got close to the intended press point, but the observed hand never matched it closely enough: best observed XY error to the press target was 0.041 m, while it returned almost exactly to the pre-press target by the end. The robot therefore hovered or lightly contacted near the button instead of driving it inward by the required 0.02 m.</p>
+                  <p>The root cause of failure is interaction geometry and execution margin: the press target is too marginal, the actual hand undershoots it by several centimeters, and the policy retracts on a timer without verifying button displacement.</p>
+                </blockquote>
+                <details class="file-view" data-src="static/hardware_refinement/iter_1_1/llm_evaluate_rollout/call2_evaluate/response.md">
+                  <summary>Full diagnosis (reasoning + summary)</summary>
+                  <pre><code>Loading&hellip;</code></pre>
+                </details>
+              </div>
+            </details>
+          </li>
+          <li class="hw-stage">
+            <details class="hw-stage-fold">
+              <summary class="hw-stage-title"><span class="hw-stage-num">5</span>Code diff applied, then re-run</summary>
+              <div class="hw-stage-body">
+                <p>Rather than regenerating the policy, the LLM proposes a localized diff &Delta; conditioned on the current policy code, preserving the logic that works and modifying only what <em>F</em> identifies as the fault. The candidate is then evaluated on the robot.</p>
+                <details class="file-view" data-src="static/hardware_refinement/iter_2_0/reasoning.md">
+                  <summary>Reasoning</summary>
+                  <pre><code>Loading&hellip;</code></pre>
+                </details>
+                <details class="file-view" data-src="static/hardware_refinement/iter_2_0/diff.txt" data-lang="diff">
+                  <summary>Diff</summary>
+                  <pre><code>Loading&hellip;</code></pre>
+                </details>
+                <details class="file-view" data-src="static/hardware_refinement/iter_2_0/policy_code.txt" data-lang="python">
+                  <summary>Resulting policy code</summary>
+                  <pre><code>Loading&hellip;</code></pre>
+                </details>
+                <figure class="hw-video">
+                  <video muted loop playsinline preload="none" src="static/hardware_refinement/iter_2_0/video/iter_2.mp4"></video>
+                  <figcaption>depth_2_0 rollout &middot; 60% success</figcaption>
+                </figure>
+              </div>
+            </details>
+          </li>
+        </ol>
+      </div>
+      <div class="task-panel" data-task="p4">
+        <div class="hw-pass-banner">
+          <div class="hw-pass-meta">Depth 3 &middot; round 0 &middot; candidate accepted</div>
+          <div class="hw-pass-head">
+            <span class="hw-pass-node">depth_2_0 <b>60%</b></span>
+            <span class="hw-pass-arrow">&rarr;</span>
+            <span class="hw-pass-node">depth_3_0 <b>90%</b></span>
+          </div>
+          <p class="hw-pass-note">The same shortfall persists but smaller, so the compensation is increased rather than redesigned.</p>
+        </div>
+        <ol class="hw-chain">
+          <li class="hw-stage">
+            <details class="hw-stage-fold">
+              <summary class="hw-stage-title"><span class="hw-stage-num">1</span>Hardware rollout</summary>
+              <div class="hw-stage-body">
+                <p>10 episodes on the Unitree G1, 6 / 10 successful (<b>60%</b>). One rollout <em>R</em> is the only evidence this round reasons over &mdash; no demonstrations, no reward, no retraining.</p>
+                <figure class="hw-video">
+                  <video muted loop playsinline preload="none" src="static/hardware_refinement/iter_2_0/video/iter_2.mp4"></video>
+                  <figcaption>depth_2_0 rollout &middot; 60% success</figcaption>
+                </figure>
+              </div>
+            </details>
+          </li>
+          <li class="hw-stage">
+            <details class="hw-stage-fold">
+              <summary class="hw-stage-title"><span class="hw-stage-num">2</span>The LLM writes its own analysis code</summary>
+              <div class="hw-stage-body">
+                <p>The LLM generates an executable analysis function <em>f</em><sub>analyze</sub>, written for this rollout and this policy rather than fixed in advance. Applied to the complete trajectory it returns a numerical summary <em>D</em> and task-relevant keyframe indices <em>k</em><sub>key</sub>.</p>
+                <details class="file-view" data-src="static/hardware_refinement/iter_2_0/llm_evaluate_rollout/call1_analyze/analysis_code.py" data-lang="python">
+                  <summary>analysis_code.py</summary>
+                  <pre><code>Loading&hellip;</code></pre>
+                </details>
+                <p><em>D</em> is at most 200 words of quantities and events the LLM judged useful &mdash; distance extrema, threshold crossings, tracking errors, internal-state transitions. Here it reports a minimum error to the press target of 0.023 m, against the 0.02 m inward push required.</p>
+                <details class="file-view" data-src="static/hardware_refinement/iter_2_0/llm_evaluate_rollout/call1_analyze/analysis_output.txt">
+                  <summary>analysis_output.txt</summary>
+                  <pre><code>Loading&hellip;</code></pre>
+                </details>
+              </div>
+            </details>
+          </li>
+          <li class="hw-stage">
+            <details class="hw-stage-fold">
+              <summary class="hw-stage-title"><span class="hw-stage-num">3</span>Keyframes handed for evaluation</summary>
+              <div class="hw-stage-body">
+                <p>Keyframes alone can miss the broader progression of a rollout, while evenly spaced frames can miss brief events such as a contact, so the two are combined under a fixed frame budget <em>B</em> = 10. When <em>f</em><sub>analyze</sub> returns fewer than <em>B</em> keyframes, the remaining slots are filled with evenly spaced frames, giving the indices <em>k</em>. Episode 2 here.</p>
+                <table class="table is-narrow hw-kf">
+                  <tbody>
+                    <tr><th><em>k</em><sub>key</sub> from <em>f</em><sub>analyze</sub> (8)</th><td><code>0, 107, 277, 281, 302, 346, 412, 539</code></td></tr>
+                    <tr><th>Evenly spaced fill (2)</th><td><code>192, 475</code></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          </li>
+          <li class="hw-stage">
+            <details class="hw-stage-fold">
+              <summary class="hw-stage-title"><span class="hw-stage-num">4</span>Feedback</summary>
+              <div class="hw-stage-body">
+                <p>From <em>D</em> and the frames at <em>k</em>, the LLM returns natural-language feedback <em>F</em> describing what occurred and the likely cause. It rests on this single rollout and has no access to the current policy&rsquo;s scalar success rate.</p>
+                <p class="hw-verbatim-label">Its <code>&lt;summary&gt;</code>, quoted in full:</p>
+                <blockquote class="hw-quote">
+                  <p>The policy’s intended strategy is a four-phase finite-state controller: walk to an offset “stand” point in front of the button, align body yaw and lateral body position, move the chosen arm to a prepress pose, then advance to a press pose and finally retract/hold. In this rollout it chose the right arm, approached the correct side of the pillar, and reached the stand region successfully.</p>
+                  <p>What actually happened is that navigation worked, but alignment took a long time. The robot first got near the stand target around step 107, then spent 170 steps in align making small stance corrections and recovering from a large temporary yaw disturbance. It finally became ready to press around step 277 and entered press at step 281. During press, the hand got close to the button, but not close enough: the minimum error to the intended press target was 0.023 m. Since the task requires 0.02 m inward displacement, this is a near miss.</p>
+                  <p>The root cause of failure is therefore manipulation underreach, not navigation. The controller can accurately reach the prepress pose, but its realized press pose never penetrates far enough inward before the fixed press timer expires and the policy retracts instead of retrying.</p>
+                </blockquote>
+                <details class="file-view" data-src="static/hardware_refinement/iter_2_0/llm_evaluate_rollout/call2_evaluate/response.md">
+                  <summary>Full diagnosis (reasoning + summary)</summary>
+                  <pre><code>Loading&hellip;</code></pre>
+                </details>
+              </div>
+            </details>
+          </li>
+          <li class="hw-stage">
+            <details class="hw-stage-fold">
+              <summary class="hw-stage-title"><span class="hw-stage-num">5</span>Code diff applied, then re-run</summary>
+              <div class="hw-stage-body">
+                <p>Rather than regenerating the policy, the LLM proposes a localized diff &Delta; conditioned on the current policy code, preserving the logic that works and modifying only what <em>F</em> identifies as the fault. The candidate is then evaluated on the robot.</p>
+                <details class="file-view" data-src="static/hardware_refinement/iter_3_0/reasoning.md">
+                  <summary>Reasoning</summary>
+                  <pre><code>Loading&hellip;</code></pre>
+                </details>
+                <details class="file-view" data-src="static/hardware_refinement/iter_3_0/diff.txt" data-lang="diff">
+                  <summary>Diff</summary>
+                  <pre><code>Loading&hellip;</code></pre>
+                </details>
+                <details class="file-view" data-src="static/hardware_refinement/iter_3_0/policy_code.txt" data-lang="python">
+                  <summary>Resulting policy code</summary>
+                  <pre><code>Loading&hellip;</code></pre>
+                </details>
+                <figure class="hw-video">
+                  <video muted loop playsinline preload="none" src="static/hardware_refinement/iter_3_0/video/iter_3.mp4"></video>
+                  <figcaption>depth_3_0 rollout &middot; 90% success</figcaption>
+                </figure>
+              </div>
+            </details>
+          </li>
+        </ol>
+      </div>
+    </div>
+
+  </div>
+</section>
+<!-- End refinement on hardware -->
+
 <!-- Simulation results -->
-<section class="section hero is-light">
+<section class="section hero is-light" id="simulation">
   <div class="container is-max-desktop sim-container">
     <h2 class="title is-3 has-text-centered">Simulation Results</h2>
     <div class="content has-text-justified">
@@ -382,13 +978,13 @@
 
 
 <!--BibTex citation -->
-<section class="section" id="BibTeX">
+<section class="section hero" id="BibTeX">
   <div class="container is-max-desktop content">
     <h2 class="title">BibTeX</h2>
-    <!-- TODO: replace with the arXiv entry once available -->
     <pre><code>@article{choi2026hugo,
   title={HuGo: LLMs as Whole-Body Policy Code Designers for Humanoid Loco-Manipulation},
   author={Choi, Seoyeon and Ye, Shizhao and Bui, Nicholas and Shrivastava, Aayushi and Ryu, Kanghyun and Tirumala, Dhruva and Wulfmeier, Markus and Mehr, Negar},
+  journal={arXiv preprint arXiv:2609.30594},
   year={2026}
 }</code></pre>
   </div>

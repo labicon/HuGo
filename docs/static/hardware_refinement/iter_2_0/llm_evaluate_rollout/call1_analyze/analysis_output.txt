@@ -1,0 +1,16 @@
+episode: T=540 steps (10.80s), policy updates every 5 steps
+button face center start=(-0.594, 0.633, 0.956), face dir=(1.000, 0.000), chosen arm=right
+stand target distance: start=1.205, min=0.016@412, max=1.205@0, end=0.049
+first near stand (<0.30) at 107; first near_stand (<0.24) at 113; last near_stand at 539
+yaw-to-face error |rad|: start=0.147, best=0.000@202, worst=1.586@191, end=0.177
+first aligned (|yaw_err|<0.32) at 0; first enter_align at 107
+button local x: start=0.550, min=0.275@21, end=0.343; lateral hand-line err: start=-1.201, best_abs=0.000@439, end=0.015
+first forward_ready (x<0.40) at 16; first lateral_ready (|lat err|<0.07) at 118; first ready_to_press at 277; first good_enough_press at 278
+commanded planar speed: max=0.568@2, first zero-command at 133, last nonzero-command at 277
+observed planar speed: start=0.804, max=0.940@3, end=0.015
+pelvis height: start=0.758, min=0.728@47, max=0.804@303, end=0.759
+active hand pos in pelvis frame: x start/end=0.042/0.264, x max=0.345@220; y start/end=-0.237/-0.118; z start/end=-0.034/0.218, z max=0.333@223
+active-hand XY error to prepress target: min=0.000@522, end=0.006; to press target: min=0.023@302, end=0.094
+phase occupancy: approach[0] 0->110 (111 steps); align[1] 111->280 (170 steps); press[2] 281->345 (65 steps); retract_hold[3] 346->539 (194 steps)
+phase transitions: 110:0->111:1, 280:1->281:2, 345:2->346:3
+phase_timer max=4.200@106; first phase 1 at 111; first phase 2 at 281; first phase 3 at 346

@@ -36,12 +36,22 @@ document.addEventListener('DOMContentLoaded', function() {
   }, { threshold: 0.25 });
   document.querySelectorAll('.task-viewer').forEach(function(v) { observer.observe(v); });
 
-  // Policy code viewer: fetch the code the first time it is opened
-  document.querySelectorAll('details.policy-code').forEach(function(details) {
+  // Same treatment for strips that are not inside a tabbed viewer (zero-shot transfer)
+  var stripObserver = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      entry.isIntersecting ? playPanel(entry.target) : pausePanel(entry.target);
+    });
+  }, { threshold: 0.25 });
+  document.querySelectorAll('.hw-zs .video-strip').forEach(function(v) { stripObserver.observe(v); });
+
+  // File viewer: fetch the file the first time the disclosure is opened.
+  // Covers the simulation policy-code blocks and every artifact in the hardware trace.
+  document.querySelectorAll('details.policy-code[data-src], details.file-view[data-src]').forEach(function(details) {
     details.addEventListener('toggle', function() {
       if (!details.open || details.dataset.loaded) return;
       details.dataset.loaded = 'true';
       var code = details.querySelector('code');
+      var lang = details.dataset.lang || 'python';
       fetch(details.dataset.src)
         .then(function(r) {
           if (!r.ok) throw new Error(r.status);
@@ -49,12 +59,45 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .then(function(text) {
           code.textContent = text;
-          if (window.hljs) hljs.highlightElement(code);
+          // hljs has no diff/plain grammar loaded here; only highlight what it knows.
+          if (window.hljs && lang === 'python') {
+            code.classList.add('language-python');
+            hljs.highlightElement(code);
+          }
         })
         .catch(function() {
-          code.textContent = 'Could not load policy code.';
+          code.textContent = 'Could not load ' + details.dataset.src;
           delete details.dataset.loaded;
         });
     });
   });
+
+  // Table of contents: highlight whichever section is currently in view.
+  var tocLinks = Array.prototype.slice.call(document.querySelectorAll('.toc a'));
+  if (tocLinks.length) {
+    var targets = tocLinks
+      .map(function(a) {
+        var el = document.getElementById(a.getAttribute('href').slice(1));
+        return el ? { link: a, el: el } : null;
+      })
+      .filter(Boolean);
+
+    var markCurrent = function() {
+      // The entry whose top is the last one above the marker line is the active one.
+      var marker = window.innerHeight * 0.3;
+      var current = targets[0];
+      targets.forEach(function(t) {
+        if (t.el.getBoundingClientRect().top <= marker) current = t;
+      });
+      tocLinks.forEach(function(a) { a.classList.toggle('is-current', current && a === current.link); });
+    };
+
+    var ticking = false;
+    window.addEventListener('scroll', function() {
+      if (ticking) return;
+      ticking = true;
+      window.requestAnimationFrame(function() { markCurrent(); ticking = false; });
+    }, { passive: true });
+    markCurrent();
+  }
 });

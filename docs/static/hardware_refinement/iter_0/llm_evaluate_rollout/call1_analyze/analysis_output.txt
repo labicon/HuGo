@@ -1,0 +1,25 @@
+Episode length: 372 steps = 7.44s. Policy updates every 5 steps = 0.10s.
+Active arm from policy_state: mostly left (100.0% left). Initial active_left=True.
+Button face dir starts (-1.000, 0.000); unique rounded dirs seen: [[-1.0, 0.0]].
+Button center start (0.805, 0.892, 0.960), end (0.833, 0.931, 0.946).
+Stand-point distance: start 0.800 m, min 0.021 m at step 346 (6.92s), end 0.047 m.
+Yaw error to face pillar: start +0.239 rad, best |err| 0.000 at step 283 (5.66s), end -0.064 rad.
+Lateral alignment error for active hand: start +0.778 m, best |err| 0.004 at step 48 (0.96s), end -0.096 m.
+First enter_align condition (dist<0.30 and |yaw|<0.32): step 36 (0.72s).
+First near_stand (dist<0.24): step 41 (0.82s).
+First aligned (|yaw|<0.32): step 0 (0.00s).
+First lateral_ready (|lat_err|<0.07): step 45 (0.90s).
+First good_enough_press: step 41 (0.82s).
+First ready_to_press: step 45 (0.90s).
+Policy phases seen: [0, 1, 2, 3].
+Phase transitions: 0->1 at step 36 (0.72s), 1->2 at step 51 (1.02s), 2->3 at step 101 (2.02s), 3->0 at step 131 (2.62s), 0->1 at step 136 (2.72s), 1->2 at step 216 (4.32s), 2->3 at step 266 (5.32s), 3->0 at step 326 (6.52s), 0->1 at step 331 (6.62s), 1->2 at step 346 (6.92s).
+Phase 0: 46 steps (0.92s), first at step 0 (0.00s), last at step 330 (6.60s).
+Phase 1: 110 steps (2.20s), first at step 36 (0.72s), last at step 345 (6.90s).
+Phase 2: 126 steps (2.52s), first at step 51 (1.02s), last at step 371 (7.42s).
+Phase 3: 90 steps (1.80s), first at step 101 (2.02s), last at step 325 (6.50s).
+Commanded base speed |(vx,vy)|: start 0.662, max 0.864 at step 13 (0.26s), end 0.000.
+Observed local base speed: start 0.381, max 1.104 at step 23 (0.46s), end 0.072.
+Pelvis height: start 0.767, min 0.719 at step 301 (6.02s), max 0.797 at step 78 (1.56s), end 0.731.
+Active left command vs targets: min cmd-to-pre 0.000 m at step 114 (2.28s), min cmd-to-press 0.002 m at step 368 (7.36s).
+Active left actual EE to press-target: start 0.483 m, min 0.018 m at step 106 (2.12s), end 0.053 m.
+Press target in pelvis frame for active hand: x range [0.271, 0.450], y range [0.080, 0.340], z range [0.191, 0.200].

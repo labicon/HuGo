@@ -1,0 +1,16 @@
+T=243 steps (4.86s). Policy ticks every 5 sim steps (49 policy calls).
+Button face center starts at (-0.705, 0.001, 0.937), face dir=(1.000, 0.000), chosen active arm=left.
+Root start=(-0.486, 0.462, yaw -3.133), end=(-0.257, 0.061, yaw -3.131).
+Stand target offset metric: dist_to_stand start 0.414, min 0.010@69, end 0.055.
+Facing error |yaw_err| start 0.009, min 0.000@6, end 0.010.
+Active-hand lateral alignment error |button_local_y - shoulder_side| start 0.320, min 0.000@234, end 0.007.
+Threshold crossings: aligned<0.32 at 0; dist_to_stand<0.30 at 15; near_stand<0.24 at 19; lateral_ready<0.07 at 27.
+Ready conditions: ready_to_press first 27, good_enough_press first 28; ready_to_press held for 126 / 243 steps.
+Commanded base speed max 0.582@8; actual local root speed max 1.122@19; motion resumes from zero-speed command 0 times.
+Pelvis height cmd start/end 0.750/0.706; observed pelvis height min 0.721@196, max 0.788@88, end 0.765.
+Active left hand observed x reach: start -0.008, max 0.409@172, end 0.389.
+Active-hand command vs target: min cmd->prepress XY err 0.003@67, min cmd->press XY err 0.002@84.
+Active-hand tracking: min observed->command XYZ err 0.025@15, end observed->command err 0.098.
+At closest stand point @69: button local=(0.435, 0.080), prepress local XY=(0.380, 0.083), press local XY=(0.440, 0.079).
+phase counts: 0:21, 1:90, 2:97, 3:35
+phase transitions: 0->1@16; 1->2@71; 2->3@136; 3->0@171; 0->1@176; 1->2@211

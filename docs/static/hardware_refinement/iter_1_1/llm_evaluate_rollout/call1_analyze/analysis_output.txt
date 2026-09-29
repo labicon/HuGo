@@ -1,0 +1,25 @@
+Episode length: 148 steps = 2.96s. Policy eval every 5 steps (0.10s).
+Button face center starts at (0.803, 0.140, 0.957); face dir=(-1.000, 0.000).
+Chosen active hand: right.
+Root start xy=(0.380, 0.695), yaw=-0.072; end xy=(0.410, 0.216), yaw=0.148.
+Pelvis height: start 0.791, min 0.740 at step 147, end 0.740.
+Height cmd: start 0.750, min 0.703 at step 81, end 0.720.
+Stand target distance: start 0.466 m, min 0.046 m at step 75, end 0.052 m.
+First dist<0.30: step 14; first dist<0.24: step 28.
+Yaw error to face button: start 0.072 rad, min |err| 0.004 at step 48, end -0.148 rad.
+First |yaw_err|<0.32: step 0.
+Button in local frame: min forward x 0.210 m at step 24, end x 0.378 m.
+Hand lateral error relative to chosen shoulder line: start -0.383 m, min |err| 0.002 m at step 65, end -0.060 m.
+First forward_ready (button local x<0.40): step 4; first lateral_ready (|lat err|<0.07): step 32; first ready_to_press: step 32.
+Observed local root speed: max 1.115 m/s at step 1; end 0.009 m/s.
+Commanded planar speed from last_action: max 0.532 at step 2; first standing command (both below deadzone thresholds): step 38.
+Policy smoothed speed state: max 0.532 at step 0; end 0.000.
+Active hand observed XY error to prepress target: min 0.002 m at step 147, end 0.002 m.
+Active hand observed XY error to press target: min 0.041 m at step 103, end 0.048 m.
+Active hand command XY error to press target: min 0.007 m at step 71, end 0.051 m.
+Phase occupancy: 0=16 steps, 1=20 steps, 2=50 steps, 3=62 steps.
+Phase changes at env steps: 0:0; 16:1; 36:2; 86:3.
+First phase 1: step 16; first phase 2: step 36; first phase 3: step 86.
+Phase seen at policy-eval instants: 0:0; 20:1; 40:2; 90:3.
+End effector final positions: left=(0.063, 0.176, 0.029), right=(0.310, -0.191, 0.233).
+Final commanded hand targets from policy state: left=(0.050, 0.180, 0.020), right=(0.308, -0.189, 0.200).

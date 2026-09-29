@@ -1,0 +1,24 @@
+<diff>
+@@
+     contact_outside = 0.035
+     push_depth = 0.02
+     # Add extra inward margin because the realized hand position tends to undershoot
+     # the commanded target by a few centimeters on hardware.
+-    extra_press_margin = 0.030
++    extra_press_margin = 0.045
+     press_world_xy = button_pos[:, 0:2] + button_dir * (contact_outside - push_depth - extra_press_margin)
+     prepress_world_xy = button_pos[:, 0:2] + button_dir * (contact_outside + 0.045)
+@@
+-    press_steps = int(1.4 / dt)
++    press_steps = int(1.8 / dt)
+     retract_steps = int(0.6 / dt)
+@@
+-    left_cmd = smooth_update(policy_state["left_cmd"], left_target, 0.5)
+-    right_cmd = smooth_update(policy_state["right_cmd"], right_target, 0.5)
++    arm_smooth_rate = torch.where(press_mask | align_mask | retract_mask, torch.full_like(root_yaw, 0.65), torch.full_like(root_yaw, 0.5))
++    left_cmd = policy_state["left_cmd"] + arm_smooth_rate.unsqueeze(-1) * (left_target - policy_state["left_cmd"])
++    right_cmd = policy_state["right_cmd"] + arm_smooth_rate.unsqueeze(-1) * (right_target - policy_state["right_cmd"])
+ 
+     # Clamp to action limits
+     left_cmd[:, 0] = clamp(left_cmd[:, 0], -0.05, 0.45)
+</diff>

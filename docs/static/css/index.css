@@ -282,3 +282,530 @@ details.policy-code pre code.hljs {
 .publication-affiliations {
   margin-top: 0.75rem;
 }
+
+/* ---------- Hardware results ---------- */
+.hw-headline {
+  text-align: center;
+  margin: 1.5rem 0 2rem;
+}
+
+.hw-headline-stat {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  font-family: 'Google Sans', sans-serif;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.hw-from { font-size: 2.5rem; color: #b5b5b5; }
+.hw-to-arrow { font-size: 1.75rem; color: #b5b5b5; }
+.hw-to { font-size: 3.75rem; color: #1f8a4c; }
+
+.hw-headline-sub {
+  margin-top: 0.6rem;
+  font-size: 0.9rem;
+  color: #666;
+}
+
+/* Tree */
+.hw-tree {
+  --hw-node-w: 140px;
+  --hw-node-h: 100px;
+  border: 1px solid #e4e4e4;
+  border-radius: 8px;
+  background: #fafafa;
+  padding: 1.25rem 1rem 1.9rem;
+}
+
+/* Two regimes side by side, split by a rule: the sim policy, then what it did on hardware. */
+.hw-flow {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 0;
+}
+
+.hw-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.hw-group-label {
+  font-family: 'Google Sans', sans-serif;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #999;
+  text-align: center;
+}
+
+.hw-group-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  flex: 1 1 auto;
+}
+
+.hw-divider {
+  flex: 0 0 auto;
+  width: 0;
+  border-left: 2px solid #d0d0d0;
+  margin: 0 1.6rem;
+  align-self: stretch;
+}
+
+.hw-branches {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  flex: 0 0 auto;
+  width: var(--hw-node-w);
+}
+
+.hw-conn {
+  position: relative;
+  align-self: stretch;
+  flex: 0 0 40px;
+  min-height: 1px;
+}
+
+.hw-conn svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.hw-conn path {
+  fill: none;
+  stroke: #c8c8c8;
+  stroke-width: 1.5;
+}
+
+/* Arrowheads drawn in CSS so the stretched viewBox cannot distort them. */
+.hw-conn::before,
+.hw-conn::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 7px solid #c8c8c8;
+  transform: translate(0, -50%);
+}
+
+.hw-fork::before { top: 22%; }
+.hw-fork::after  { top: 78%; }
+.hw-join::before { display: none; }
+.hw-join::after  { top: 50%; }
+
+/* Every node is exactly the same box: same width, same height, whatever the label. */
+.hw-node {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  width: var(--hw-node-w);
+  min-height: var(--hw-node-h);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  padding: 0.6rem 0.5rem;
+  border: 1px solid #dcdcdc;
+  border-left: 4px solid #b5b5b5;
+  border-radius: 6px;
+  background: #fff;
+}
+
+/* The refinements that were accepted and carried forward. */
+.hw-node.is-kept {
+  border-color: #1f8a4c;
+  border-left-color: #1f8a4c;
+}
+
+.hw-node.is-final .hw-node-sr { color: #1f8a4c; }
+
+.hw-node.is-dropped {
+  border-style: dashed;
+  border-left-style: solid;
+  border-left-color: #d8d8d8;
+  background: #fbfbfb;
+  opacity: 0.7;
+}
+
+.hw-node-sr { font-family: 'Google Sans', sans-serif; font-size: 1.5rem; font-weight: 700; color: #363636; }
+.hw-node-id { font-family: monospace; font-size: 0.72rem; color: #555; }
+.hw-node-tag { font-size: 0.7rem; color: #888; text-align: center; }
+
+.hw-edge {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #b5b5b5;
+  font-size: 1.25rem;
+  flex: 0 0 auto;
+  position: relative;
+}
+
+.hw-caption {
+  font-size: 0.85rem;
+  color: #666;
+  margin-top: 0.75rem;
+  text-align: center;
+}
+
+.hw-table { font-size: 0.85rem; background: transparent; }
+.hw-table th { font-size: 0.78rem; color: #555; }
+
+/* Chain of stages */
+/* The pass header is a banner, so the numbered chain below reads as a separate block. */
+.hw-pass-banner {
+  background: #f4f6f8;
+  border: 1px solid #e2e6ea;
+  border-radius: 8px;
+  padding: 0.9rem 1rem 0.85rem;
+  margin: 0 0 1.75rem;
+}
+
+.hw-pass-meta {
+  font-family: 'Google Sans', sans-serif;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #8a94a0;
+  text-align: center;
+  margin-bottom: 0.5rem;
+}
+
+.hw-pass-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 0.4rem;
+}
+
+.hw-pass-node {
+  font-family: monospace;
+  font-size: 0.85rem;
+  color: #555;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid #dde2e7;
+  border-radius: 5px;
+  background: #fff;
+}
+
+.hw-pass-node b { font-family: 'Google Sans', sans-serif; color: #363636; }
+.hw-pass-arrow { color: #b5b5b5; }
+
+.hw-pass-note {
+  font-size: 0.85rem;
+  color: #667;
+  text-align: center;
+  margin: 0.55rem auto 0;
+  max-width: 44rem;
+}
+
+.hw-chain {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  counter-reset: none;
+}
+
+/* The chain's spine starts flush under the banner, offset so the numbered
+   markers sit clear of it. */
+.hw-chain > .hw-stage:first-child { padding-top: 0.15rem; }
+
+.hw-stage {
+  border-left: 2px solid #e4e4e4;
+  padding: 0 0 0.9rem 1.25rem;
+  margin: 0;
+  position: relative;
+}
+
+.hw-stage:last-child { padding-bottom: 0; }
+
+.hw-stage-fold { margin: 0; }
+
+.hw-stage-title {
+  font-family: 'Google Sans', sans-serif;
+  font-weight: 600;
+  font-size: 1rem;
+  margin-bottom: 0.4rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+  list-style: none;
+  padding: 0.15rem 0;
+}
+
+.hw-stage-title::-webkit-details-marker { display: none; }
+
+.hw-stage-title::after {
+  content: "\25B8";
+  margin-left: auto;
+  color: #b5b5b5;
+  font-size: 0.8rem;
+  transition: transform 0.15s ease;
+}
+
+.hw-stage-fold[open] > .hw-stage-title::after { transform: rotate(90deg); }
+.hw-stage-fold[open] > .hw-stage-title { margin-bottom: 0.6rem; }
+
+.hw-stage-body { padding-bottom: 0.25rem; }
+
+.hw-stage-num {
+  flex: 0 0 auto;
+  width: 1.5rem;
+  height: 1.5rem;
+  margin-left: -2.1rem;
+  border-radius: 50%;
+  background: #363636;
+  color: #fff;
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hw-stage p { font-size: 0.9rem; margin-bottom: 0.5rem; }
+
+.hw-verbatim-label {
+  font-size: 0.8rem;
+  color: #888;
+  margin-bottom: 0.35rem !important;
+}
+
+.hw-quote {
+  border-left: 3px solid #363636;
+  background: #f5f5f5;
+  padding: 0.75rem 1rem 0.3rem;
+  margin: 0 0 0.6rem;
+  font-size: 0.88rem;
+  font-style: italic;
+}
+
+.hw-quote p { margin-bottom: 0.65rem; }
+.hw-quote p:last-child { margin-bottom: 0.45rem; }
+
+.hw-video { margin: 0.6rem 0 0; max-width: 210px; }
+.hw-video video { width: 100%; border-radius: 6px; display: block; }
+.hw-video figcaption { font-size: 0.78rem; color: #666; text-align: center; margin-top: 0.25rem; }
+
+.hw-kf {
+  font-size: 0.82rem;
+  background: transparent;
+  margin-top: 0.5rem;
+}
+
+.hw-kf th {
+  font-weight: 600;
+  color: #555;
+  white-space: nowrap;
+  width: 1%;
+  padding-right: 1rem;
+}
+
+.hw-kf code { font-size: 0.78rem; background: #f5f5f5; }
+
+/* Attempts inside a step */
+.hw-attempt {
+  border: 1px solid #e4e4e4;
+  border-radius: 6px;
+  padding: 0.75rem 0.9rem;
+  margin-bottom: 0.75rem;
+  background: #fff;
+}
+
+.hw-attempt.is-bad { background: #fff7f7; border-color: #f2d5d5; }
+.hw-attempt.is-good { background: #f6fbf8; border-color: #cfe7d9; }
+
+.hw-attempt-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+
+.hw-badge {
+  font-family: 'Google Sans', sans-serif;
+  font-weight: 700;
+  font-size: 0.95rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 4px;
+  color: #fff;
+}
+
+.hw-badge.is-bad { background: #d64545; }
+.hw-badge.is-good { background: #1f8a4c; }
+.hw-note { color: #666; font-size: 0.82rem; }
+
+/* Lazy-loaded file views (generalises details.policy-code) */
+details.file-view { margin-top: 0.4rem; }
+
+details.file-view summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: 0.25rem 0;
+}
+
+details.file-view pre {
+  max-height: 420px;
+  overflow: auto;
+  margin-top: 0.4rem;
+  padding: 0;
+  border-radius: 6px;
+  font-size: 0.72rem;
+}
+
+details.file-view pre code.hljs { padding: 0.9rem; }
+details.file-view pre code { white-space: pre; }
+
+@media screen and (max-width: 768px) {
+  .hw-to { font-size: 2.75rem; }
+  .hw-from { font-size: 1.9rem; }
+  .hw-edge, .hw-conn { display: none; }
+  .hw-flow { flex-direction: column; gap: 1.25rem; }
+  .hw-group-body { flex-direction: column; gap: 0.5rem; }
+  .hw-node, .hw-branches { flex: 1 1 auto; width: 100%; }
+  .hw-divider {
+    width: auto;
+    align-self: auto;
+    border-left: 0;
+    border-top: 2px solid #d0d0d0;
+    margin: 0;
+  }
+  .hw-branches { gap: 0.5rem; }
+  .hw-stage { padding-left: 1rem; }
+  .hw-stage-num { margin-left: -1.85rem; }
+}
+
+/* Full abstract, folded under the TL;DR */
+details.abstract-fold {
+  margin-top: 0.5rem;
+  text-align: left;
+}
+
+details.abstract-fold summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-align: center;
+  color: #555;
+  padding: 0.35rem 0;
+}
+
+details.abstract-fold[open] summary { margin-bottom: 0.5rem; }
+details.abstract-fold .content { font-size: 0.95rem; }
+
+/* TL;DR emphasis: underline reads more clearly than bold at this weight */
+.tldr-em {
+  text-decoration: underline;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+  text-decoration-color: #363636;
+}
+
+/* ---------- Zero-shot transfer ---------- */
+.hw-zs {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+.hw-zs-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid #e8e8e8;
+}
+
+.hw-zs-name {
+  font-family: 'Google Sans', sans-serif;
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.hw-zs-sr {
+  font-family: 'Google Sans', sans-serif;
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: #1f8a4c;
+}
+
+.hw-zs-sub { font-size: 0.8rem; color: #888; }
+
+/* Three trials visible at once rather than the default two-up scroll */
+.video-strip.is-three .strip-item { flex: 0 0 calc(33.333% - 0.67rem); }
+
+/* Portrait clips are much taller at the same width, so run them at 2/3 and centre the row. */
+.video-strip.is-portrait { justify-content: center; }
+.video-strip.is-three.is-portrait .strip-item { flex: 0 0 calc(22.222% - 0.45rem); }
+
+@media screen and (max-width: 768px) {
+  .video-strip.is-three .strip-item { flex-basis: 70%; }
+}
+
+/* ---------- Table of contents sidebar ---------- */
+html { scroll-behavior: smooth; }
+:target { scroll-margin-top: 1.5rem; }
+
+.toc {
+  position: fixed;
+  top: 50%;
+  left: 1.25rem;
+  transform: translateY(-50%);
+  z-index: 30;
+  max-width: 13rem;
+}
+
+.toc ul { list-style: none; margin: 0; padding: 0; }
+
+.toc li { margin: 0; }
+
+.toc a {
+  display: block;
+  font-family: 'Google Sans', sans-serif;
+  padding: 0.28rem 0 0.28rem 0.7rem;
+  border-left: 2px solid #e4e4e4;
+  font-size: 0.78rem;
+  line-height: 1.25;
+  color: #999;
+  text-decoration: none;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.toc a:hover { color: #363636; border-left-color: #b5b5b5; }
+
+.toc a.is-current {
+  color: #363636;
+  font-weight: 600;
+  border-left-color: #363636;
+}
+
+.toc-sub a {
+  padding-left: 1.5rem;
+  font-size: 0.72rem;
+}
+
+/* The sidebar needs room beside the 960px container; below that it would overlap. */
+@media screen and (max-width: 1340px) {
+  .toc { display: none; }
+}
