@@ -36,13 +36,14 @@ document.addEventListener('DOMContentLoaded', function() {
   }, { threshold: 0.25 });
   document.querySelectorAll('.task-viewer').forEach(function(v) { observer.observe(v); });
 
-  // Same treatment for strips that are not inside a tabbed viewer (zero-shot transfer)
-  var stripObserver = new IntersectionObserver(function(entries) {
+  // Zero-shot clips sit outside any tabbed viewer, so they get their own observer.
+  var clipObserver = new IntersectionObserver(function(entries) {
     entries.forEach(function(entry) {
       entry.isIntersecting ? playPanel(entry.target) : pausePanel(entry.target);
     });
-  }, { threshold: 0.25 });
-  document.querySelectorAll('.hw-zs .video-strip').forEach(function(v) { stripObserver.observe(v); });
+  }, { threshold: 0.2 });
+  document.querySelectorAll('.zs-clips').forEach(function(v) { clipObserver.observe(v); });
+
 
   // File viewer: fetch the file the first time the disclosure is opened.
   // Covers the simulation policy-code blocks and every artifact in the hardware trace.

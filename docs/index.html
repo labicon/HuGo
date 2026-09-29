@@ -29,12 +29,12 @@
   href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
   <link rel="stylesheet"
   href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
-  <link rel="stylesheet" href="static/css/index.css?v=14">
+  <link rel="stylesheet" href="static/css/index.css?v=25">
 
   <script defer src="static/js/fontawesome.all.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
-  <script defer src="static/js/index.js?v=14"></script>
+  <script defer src="static/js/index.js?v=25"></script>
 </head>
 <body>
 
@@ -42,9 +42,8 @@
     <ul>
       <li><a href="#tldr">TL;DR</a></li>
       <li><a href="#method">Method</a></li>
-      <li><a href="#zero-shot">Zero-Shot Transfer</a></li>
-      <li><a href="#refinement">Refinement on Hardware</a></li>
       <li><a href="#simulation">Simulation Results</a></li>
+      <li><a href="#refinement">Refinement on Hardware</a></li>
       <li><a href="#BibTeX">BibTeX</a></li>
     </ul>
   </nav>
@@ -154,8 +153,34 @@
           </p>
         </div>
 
+        <div class="content has-text-justified">
+          <p>
+            With HuGo, we show that policy code generated in simulation runs directly zero-shot on hardware:
+          </p>
+        </div>
+
+        <div class="zs-grid">
+          <div class="zs-row is-tall">
+            <div class="zs-label">Push Button<b>93.3%</b></div>
+            <div class="zs-clips">
+              <video muted loop playsinline preload="metadata" src="static/hardware/push_button/ep_0.mp4"></video>
+              <video muted loop playsinline preload="metadata" src="static/hardware/push_button/ep_1.mp4"></video>
+              <video muted loop playsinline preload="metadata" src="static/hardware/push_button/ep_2.mp4"></video>
+            </div>
+          </div>
+          <div class="zs-row">
+            <div class="zs-label">Lift Box<b>66.7%</b></div>
+            <div class="zs-clips">
+              <video muted loop playsinline preload="metadata" src="static/hardware/lift_box/ep_0.mp4"></video>
+              <video muted loop playsinline preload="metadata" src="static/hardware/lift_box/ep_1.mp4"></video>
+              <video muted loop playsinline preload="metadata" src="static/hardware/lift_box/ep_2.mp4"></video>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
+
   </div>
 </section>
 <!-- End TL;DR -->
@@ -192,65 +217,199 @@
 <!-- End method video -->
 
 
-<!-- Zero-shot transfer -->
-<section class="section hero is-light" id="zero-shot">
+<!-- Simulation results -->
+<section class="section hero is-light" id="simulation">
   <div class="container is-max-desktop sim-container">
-    <h2 class="title is-3 has-text-centered">Zero-Shot Transfer</h2>
+    <h2 class="title is-3 has-text-centered">Simulation Results</h2>
     <div class="content has-text-justified">
       <p>
-        We deploy policy codes generated in simulation directly on the Unitree G1, with no refinement.
+        Rollouts of policy code generated and refined by HuGo on a Unitree G1 in IsaacSim. Every policy is obtained from a task description alone.
+        The initial poses of the humanoid, objects, and goals are randomized, so the generated code must adapt its navigation path, approach pose, and command timing.
+        Select a task to watch its rollouts and read the policy code the LLM wrote.
       </p>
     </div>
 
-    <div class="hw-zs">
-      <div class="hw-zs-task">
-        <div class="hw-zs-head">
-          <span class="hw-zs-name">Push button</span>
-          <span class="hw-zs-sr">93.3%</span>
-          <span class="hw-zs-sub">success over 15 trials</span>
+    <h3 class="title is-5">Five-task suite</h3>
+    <div class="task-viewer" data-group="suite">
+      <div class="tabs is-toggle is-centered is-small">
+        <ul>
+          <li class="is-active" data-task="lgp"><a>Low Gate Passing</a></li>
+          <li data-task="ngp"><a>Narrow Gate Passing</a></li>
+          <li data-task="pbt"><a>Push Button</a></li>
+          <li data-task="pbx"><a>Push Box</a></li>
+          <li data-task="lbx"><a>Lift Box</a></li>
+        </ul>
+      </div>
+
+      <div class="task-panel is-active" data-task="lgp">
+        <p class="task-desc">The humanoid must pass through two low gates by lowering its body height.</p>
+        <div class="video-strip">
+          <figure class="strip-item">
+            <video muted loop playsinline preload="metadata" src="static/simulation/low_gate_passing_1/ep_0.mp4"></video>
+            <figcaption>Episode 1</figcaption>
+          </figure>
+          <figure class="strip-item">
+            <video muted loop playsinline preload="metadata" src="static/simulation/low_gate_passing_1/ep_1.mp4"></video>
+            <figcaption>Episode 2</figcaption>
+          </figure>
+          <figure class="strip-item">
+            <video muted loop playsinline preload="metadata" src="static/simulation/low_gate_passing_1/ep_2.mp4"></video>
+            <figcaption>Episode 3</figcaption>
+          </figure>
         </div>
-        <div class="video-strip is-three is-portrait">
+        <details class="policy-code" data-src="static/simulation/low_gate_passing_1/policy_code.txt">
+          <summary>Show generated policy code</summary>
+          <pre><code class="language-python">Loading...</code></pre>
+        </details>
+      </div>
+      <div class="task-panel" data-task="ngp">
+        <p class="task-desc">The humanoid must pass through two narrow gates by turning its body sideways.</p>
+        <div class="video-strip">
           <figure class="strip-item">
-            <video muted loop playsinline preload="metadata" src="static/hardware/push_button/ep_0.mp4"></video>
-            <figcaption>Trial 1</figcaption>
+            <video muted loop playsinline preload="none" src="static/simulation/narrow_gate_passing_1/ep_0.mp4"></video>
+            <figcaption>Episode 1</figcaption>
           </figure>
           <figure class="strip-item">
-            <video muted loop playsinline preload="metadata" src="static/hardware/push_button/ep_1.mp4"></video>
-            <figcaption>Trial 2</figcaption>
+            <video muted loop playsinline preload="none" src="static/simulation/narrow_gate_passing_1/ep_1.mp4"></video>
+            <figcaption>Episode 2</figcaption>
           </figure>
           <figure class="strip-item">
-            <video muted loop playsinline preload="metadata" src="static/hardware/push_button/ep_2.mp4"></video>
-            <figcaption>Trial 3</figcaption>
+            <video muted loop playsinline preload="none" src="static/simulation/narrow_gate_passing_1/ep_2.mp4"></video>
+            <figcaption>Episode 3</figcaption>
+          </figure>
+        </div>
+        <details class="policy-code" data-src="static/simulation/narrow_gate_passing_1/policy_code.txt">
+          <summary>Show generated policy code</summary>
+          <pre><code class="language-python">Loading...</code></pre>
+        </details>
+      </div>
+      <div class="task-panel" data-task="pbt">
+        <p class="task-desc">The humanoid must approach a button and press it using one of its end-effectors.</p>
+        <div class="video-strip">
+          <figure class="strip-item">
+            <video muted loop playsinline preload="none" src="static/simulation/push_button_2/ep_0.mp4"></video>
+            <figcaption>Episode 1</figcaption>
+          </figure>
+          <figure class="strip-item">
+            <video muted loop playsinline preload="none" src="static/simulation/push_button_2/ep_1.mp4"></video>
+            <figcaption>Episode 2</figcaption>
+          </figure>
+          <figure class="strip-item">
+            <video muted loop playsinline preload="none" src="static/simulation/push_button_2/ep_2.mp4"></video>
+            <figcaption>Episode 3</figcaption>
+          </figure>
+        </div>
+        <details class="policy-code" data-src="static/simulation/push_button_2/policy_code.txt">
+          <summary>Show generated policy code</summary>
+          <pre><code class="language-python">Loading...</code></pre>
+        </details>
+      </div>
+      <div class="task-panel" data-task="pbx">
+        <p class="task-desc">The humanoid must approach a box, push it to within 10 cm of a target, and hold it there for one second.</p>
+        <div class="video-strip">
+          <figure class="strip-item">
+            <video muted loop playsinline preload="none" src="static/simulation/push_box_1/ep_0.mp4"></video>
+            <figcaption>Episode 1</figcaption>
+          </figure>
+          <figure class="strip-item">
+            <video muted loop playsinline preload="none" src="static/simulation/push_box_1/ep_1.mp4"></video>
+            <figcaption>Episode 2</figcaption>
+          </figure>
+          <figure class="strip-item">
+            <video muted loop playsinline preload="none" src="static/simulation/push_box_1/ep_2.mp4"></video>
+            <figcaption>Episode 3</figcaption>
+          </figure>
+        </div>
+        <details class="policy-code" data-src="static/simulation/push_box_1/policy_code.txt">
+          <summary>Show generated policy code</summary>
+          <pre><code class="language-python">Loading...</code></pre>
+        </details>
+      </div>
+      <div class="task-panel" data-task="lbx">
+        <p class="task-desc">The humanoid must approach a box resting on a podium, grasp it, and lift it above 1.0 m.</p>
+        <div class="video-strip">
+          <figure class="strip-item">
+            <video muted loop playsinline preload="none" src="static/simulation/lift_box_1/ep_0.mp4"></video>
+            <figcaption>Episode 1</figcaption>
+          </figure>
+          <figure class="strip-item">
+            <video muted loop playsinline preload="none" src="static/simulation/lift_box_1/ep_1.mp4"></video>
+            <figcaption>Episode 2</figcaption>
+          </figure>
+          <figure class="strip-item">
+            <video muted loop playsinline preload="none" src="static/simulation/lift_box_1/ep_2.mp4"></video>
+            <figcaption>Episode 3</figcaption>
+          </figure>
+        </div>
+        <details class="policy-code" data-src="static/simulation/lift_box_1/policy_code.txt">
+          <summary>Show generated policy code</summary>
+          <pre><code class="language-python">Loading...</code></pre>
+        </details>
+      </div>
+    </div>
+
+    <h3 class="title is-5" style="margin-top: 3rem;">Tasks from HDMI</h3>
+    <div class="content has-text-justified">
+      <p>
+        We also compare against HDMI, which trains a policy per task by imitating reference motions extracted from human videos,
+        on two of its tasks. HuGo generates these policies from a task description without any demonstrations.
+        Each video below is a different generated policy.
+      </p>
+    </div>
+    <div class="task-viewer" data-group="hdmi">
+      <div class="tabs is-toggle is-centered is-small">
+        <ul>
+          <li class="is-active" data-task="pdh"><a>Push Door with Hand</a></li>
+          <li data-task="cpb"><a>Carry and Place Bread Box</a></li>
+        </ul>
+      </div>
+
+      <div class="task-panel is-active" data-task="pdh">
+        <p class="task-desc">The humanoid must approach a door, push it open, and walk through.</p>
+        <div class="video-strip">
+          <figure class="strip-item">
+            <video muted loop playsinline preload="metadata" src="static/simulation/hdmi_push_door_hand_1/ep_0.mp4"></video>
+            <figcaption>Policy 1</figcaption>
+            <details class="policy-code" data-src="static/simulation/hdmi_push_door_hand_1/policy_code.txt">
+                <summary>Policy 1 code</summary>
+                <pre><code class="language-python">Loading...</code></pre>
+              </details>
+          </figure>
+          <figure class="strip-item">
+            <video muted loop playsinline preload="metadata" src="static/simulation/hdmi_push_door_hand_2/ep_0.mp4"></video>
+            <figcaption>Policy 2</figcaption>
+            <details class="policy-code" data-src="static/simulation/hdmi_push_door_hand_2/policy_code.txt">
+                <summary>Policy 2 code</summary>
+                <pre><code class="language-python">Loading...</code></pre>
+              </details>
           </figure>
         </div>
       </div>
-
-      <div class="hw-zs-task">
-        <div class="hw-zs-head">
-          <span class="hw-zs-name">Lift box</span>
-          <span class="hw-zs-sr">66.7%</span>
-          <span class="hw-zs-sub">success over 15 trials</span>
-        </div>
-        <div class="video-strip is-three">
+      <div class="task-panel" data-task="cpb">
+        <p class="task-desc">The humanoid must grasp a bread box, carry it, and place it at a target.</p>
+        <div class="video-strip">
           <figure class="strip-item">
-            <video muted loop playsinline preload="metadata" src="static/hardware/lift_box/ep_0.mp4"></video>
-            <figcaption>Trial 1</figcaption>
+            <video muted loop playsinline preload="none" src="static/simulation/hdmi_carry_and_place_bread_box_1/ep_0.mp4"></video>
+            <figcaption>Policy 1</figcaption>
+            <details class="policy-code" data-src="static/simulation/hdmi_carry_and_place_bread_box_1/policy_code.txt">
+                <summary>Policy 1 code</summary>
+                <pre><code class="language-python">Loading...</code></pre>
+              </details>
           </figure>
           <figure class="strip-item">
-            <video muted loop playsinline preload="metadata" src="static/hardware/lift_box/ep_1.mp4"></video>
-            <figcaption>Trial 2</figcaption>
-          </figure>
-          <figure class="strip-item">
-            <video muted loop playsinline preload="metadata" src="static/hardware/lift_box/ep_2.mp4"></video>
-            <figcaption>Trial 3</figcaption>
+            <video muted loop playsinline preload="none" src="static/simulation/hdmi_carry_and_place_bread_box_2/ep_0.mp4"></video>
+            <figcaption>Policy 2</figcaption>
+            <details class="policy-code" data-src="static/simulation/hdmi_carry_and_place_bread_box_2/policy_code.txt">
+                <summary>Policy 2 code</summary>
+                <pre><code class="language-python">Loading...</code></pre>
+              </details>
           </figure>
         </div>
       </div>
     </div>
-
-      </div>
+  </div>
 </section>
-<!-- End zero-shot transfer -->
+<!-- End simulation results -->
 
 <!-- Refinement on hardware -->
 <section class="section hero" id="refinement">
@@ -759,203 +918,9 @@
 </section>
 <!-- End refinement on hardware -->
 
-<!-- Simulation results -->
-<section class="section hero is-light" id="simulation">
-  <div class="container is-max-desktop sim-container">
-    <h2 class="title is-3 has-text-centered">Simulation Results</h2>
-    <div class="content has-text-justified">
-      <p>
-        Rollouts of policy code generated and refined by HuGo on a Unitree G1 in IsaacSim. Every policy is obtained from a task description alone.
-        The initial poses of the humanoid, objects, and goals are randomized, so the generated code must adapt its navigation path, approach pose, and command timing.
-        Select a task to watch its rollouts and read the policy code the LLM wrote.
-      </p>
-    </div>
-
-    <h3 class="title is-5">Five-task suite</h3>
-    <div class="task-viewer" data-group="suite">
-      <div class="tabs is-toggle is-centered is-small">
-        <ul>
-          <li class="is-active" data-task="lgp"><a>Low Gate Passing</a></li>
-          <li data-task="ngp"><a>Narrow Gate Passing</a></li>
-          <li data-task="pbt"><a>Push Button</a></li>
-          <li data-task="pbx"><a>Push Box</a></li>
-          <li data-task="lbx"><a>Lift Box</a></li>
-        </ul>
-      </div>
-
-      <div class="task-panel is-active" data-task="lgp">
-        <p class="task-desc">The humanoid must pass through two low gates by lowering its body height.</p>
-        <div class="video-strip">
-          <figure class="strip-item">
-            <video muted loop playsinline preload="metadata" src="static/simulation/low_gate_passing_1/ep_0.mp4"></video>
-            <figcaption>Episode 1</figcaption>
-          </figure>
-          <figure class="strip-item">
-            <video muted loop playsinline preload="metadata" src="static/simulation/low_gate_passing_1/ep_1.mp4"></video>
-            <figcaption>Episode 2</figcaption>
-          </figure>
-          <figure class="strip-item">
-            <video muted loop playsinline preload="metadata" src="static/simulation/low_gate_passing_1/ep_2.mp4"></video>
-            <figcaption>Episode 3</figcaption>
-          </figure>
-        </div>
-        <details class="policy-code" data-src="static/simulation/low_gate_passing_1/policy_code.txt">
-          <summary>Show generated policy code</summary>
-          <pre><code class="language-python">Loading...</code></pre>
-        </details>
-      </div>
-      <div class="task-panel" data-task="ngp">
-        <p class="task-desc">The humanoid must pass through two narrow gates by turning its body sideways.</p>
-        <div class="video-strip">
-          <figure class="strip-item">
-            <video muted loop playsinline preload="none" src="static/simulation/narrow_gate_passing_1/ep_0.mp4"></video>
-            <figcaption>Episode 1</figcaption>
-          </figure>
-          <figure class="strip-item">
-            <video muted loop playsinline preload="none" src="static/simulation/narrow_gate_passing_1/ep_1.mp4"></video>
-            <figcaption>Episode 2</figcaption>
-          </figure>
-          <figure class="strip-item">
-            <video muted loop playsinline preload="none" src="static/simulation/narrow_gate_passing_1/ep_2.mp4"></video>
-            <figcaption>Episode 3</figcaption>
-          </figure>
-        </div>
-        <details class="policy-code" data-src="static/simulation/narrow_gate_passing_1/policy_code.txt">
-          <summary>Show generated policy code</summary>
-          <pre><code class="language-python">Loading...</code></pre>
-        </details>
-      </div>
-      <div class="task-panel" data-task="pbt">
-        <p class="task-desc">The humanoid must approach a button and press it using one of its end-effectors.</p>
-        <div class="video-strip">
-          <figure class="strip-item">
-            <video muted loop playsinline preload="none" src="static/simulation/push_button_2/ep_0.mp4"></video>
-            <figcaption>Episode 1</figcaption>
-          </figure>
-          <figure class="strip-item">
-            <video muted loop playsinline preload="none" src="static/simulation/push_button_2/ep_1.mp4"></video>
-            <figcaption>Episode 2</figcaption>
-          </figure>
-          <figure class="strip-item">
-            <video muted loop playsinline preload="none" src="static/simulation/push_button_2/ep_2.mp4"></video>
-            <figcaption>Episode 3</figcaption>
-          </figure>
-        </div>
-        <details class="policy-code" data-src="static/simulation/push_button_2/policy_code.txt">
-          <summary>Show generated policy code</summary>
-          <pre><code class="language-python">Loading...</code></pre>
-        </details>
-      </div>
-      <div class="task-panel" data-task="pbx">
-        <p class="task-desc">The humanoid must approach a box, push it to within 10 cm of a target, and hold it there for one second.</p>
-        <div class="video-strip">
-          <figure class="strip-item">
-            <video muted loop playsinline preload="none" src="static/simulation/push_box_1/ep_0.mp4"></video>
-            <figcaption>Episode 1</figcaption>
-          </figure>
-          <figure class="strip-item">
-            <video muted loop playsinline preload="none" src="static/simulation/push_box_1/ep_1.mp4"></video>
-            <figcaption>Episode 2</figcaption>
-          </figure>
-          <figure class="strip-item">
-            <video muted loop playsinline preload="none" src="static/simulation/push_box_1/ep_2.mp4"></video>
-            <figcaption>Episode 3</figcaption>
-          </figure>
-        </div>
-        <details class="policy-code" data-src="static/simulation/push_box_1/policy_code.txt">
-          <summary>Show generated policy code</summary>
-          <pre><code class="language-python">Loading...</code></pre>
-        </details>
-      </div>
-      <div class="task-panel" data-task="lbx">
-        <p class="task-desc">The humanoid must approach a box resting on a podium, grasp it, and lift it above 1.0 m.</p>
-        <div class="video-strip">
-          <figure class="strip-item">
-            <video muted loop playsinline preload="none" src="static/simulation/lift_box_1/ep_0.mp4"></video>
-            <figcaption>Episode 1</figcaption>
-          </figure>
-          <figure class="strip-item">
-            <video muted loop playsinline preload="none" src="static/simulation/lift_box_1/ep_1.mp4"></video>
-            <figcaption>Episode 2</figcaption>
-          </figure>
-          <figure class="strip-item">
-            <video muted loop playsinline preload="none" src="static/simulation/lift_box_1/ep_2.mp4"></video>
-            <figcaption>Episode 3</figcaption>
-          </figure>
-        </div>
-        <details class="policy-code" data-src="static/simulation/lift_box_1/policy_code.txt">
-          <summary>Show generated policy code</summary>
-          <pre><code class="language-python">Loading...</code></pre>
-        </details>
-      </div>
-    </div>
-
-    <h3 class="title is-5" style="margin-top: 3rem;">Tasks from HDMI</h3>
-    <div class="content has-text-justified">
-      <p>
-        We also compare against HDMI, which trains a policy per task by imitating reference motions extracted from human videos,
-        on two of its tasks. HuGo generates these policies from a task description without any demonstrations.
-        Each video below is a different generated policy.
-      </p>
-    </div>
-    <div class="task-viewer" data-group="hdmi">
-      <div class="tabs is-toggle is-centered is-small">
-        <ul>
-          <li class="is-active" data-task="pdh"><a>Push Door with Hand</a></li>
-          <li data-task="cpb"><a>Carry and Place Bread Box</a></li>
-        </ul>
-      </div>
-
-      <div class="task-panel is-active" data-task="pdh">
-        <p class="task-desc">The humanoid must approach a door, push it open, and walk through.</p>
-        <div class="video-strip">
-          <figure class="strip-item">
-            <video muted loop playsinline preload="metadata" src="static/simulation/hdmi_push_door_hand_1/ep_0.mp4"></video>
-            <figcaption>Policy 1</figcaption>
-            <details class="policy-code" data-src="static/simulation/hdmi_push_door_hand_1/policy_code.txt">
-                <summary>Policy 1 code</summary>
-                <pre><code class="language-python">Loading...</code></pre>
-              </details>
-          </figure>
-          <figure class="strip-item">
-            <video muted loop playsinline preload="metadata" src="static/simulation/hdmi_push_door_hand_2/ep_0.mp4"></video>
-            <figcaption>Policy 2</figcaption>
-            <details class="policy-code" data-src="static/simulation/hdmi_push_door_hand_2/policy_code.txt">
-                <summary>Policy 2 code</summary>
-                <pre><code class="language-python">Loading...</code></pre>
-              </details>
-          </figure>
-        </div>
-      </div>
-      <div class="task-panel" data-task="cpb">
-        <p class="task-desc">The humanoid must grasp a bread box, carry it, and place it at a target.</p>
-        <div class="video-strip">
-          <figure class="strip-item">
-            <video muted loop playsinline preload="none" src="static/simulation/hdmi_carry_and_place_bread_box_1/ep_0.mp4"></video>
-            <figcaption>Policy 1</figcaption>
-            <details class="policy-code" data-src="static/simulation/hdmi_carry_and_place_bread_box_1/policy_code.txt">
-                <summary>Policy 1 code</summary>
-                <pre><code class="language-python">Loading...</code></pre>
-              </details>
-          </figure>
-          <figure class="strip-item">
-            <video muted loop playsinline preload="none" src="static/simulation/hdmi_carry_and_place_bread_box_2/ep_0.mp4"></video>
-            <figcaption>Policy 2</figcaption>
-            <details class="policy-code" data-src="static/simulation/hdmi_carry_and_place_bread_box_2/policy_code.txt">
-                <summary>Policy 2 code</summary>
-                <pre><code class="language-python">Loading...</code></pre>
-              </details>
-          </figure>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-<!-- End simulation results -->
-
 
 <!--BibTex citation -->
-<section class="section hero" id="BibTeX">
+<section class="section hero is-light" id="BibTeX">
   <div class="container is-max-desktop content">
     <h2 class="title">BibTeX</h2>
     <pre><code>@article{choi2026hugo,
