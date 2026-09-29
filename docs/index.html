@@ -29,12 +29,12 @@
   href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
   <link rel="stylesheet"
   href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
-  <link rel="stylesheet" href="static/css/index.css?v=6">
+  <link rel="stylesheet" href="static/css/index.css?v=14">
 
   <script defer src="static/js/fontawesome.all.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
-  <script defer src="static/js/index.js?v=6"></script>
+  <script defer src="static/js/index.js?v=14"></script>
 </head>
 <body>
 
@@ -196,34 +196,18 @@
 <section class="section hero is-light" id="zero-shot">
   <div class="container is-max-desktop sim-container">
     <h2 class="title is-3 has-text-centered">Zero-Shot Transfer</h2>
-    <!--
     <div class="content has-text-justified">
       <p>
-        High-level policies run on a Unitree G1 using the same frozen <code>sonic</code> low-level policy as in
-        simulation, with the observation built from a motion capture system. The observation and command
-        specifications match those used in simulation, so the generated policy code runs on hardware
-        <em>without modification</em>.
+        We deploy policy codes generated in simulation directly on the Unitree G1, with no refinement.
       </p>
     </div>
-    -->
-
-        <!--
-    <div class="content has-text-justified">
-      <p>
-        The two tasks that fit the hardware workspace are evaluated first, with no refinement at all. For each task
-        the three policy codes with the highest simulation success rate are deployed and run for 15 trials, using the
-        same initial conditions for every policy. Below is the best-performing policy for each task across different
-        initial conditions, which it handles without any change between trials.
-      </p>
-    </div>
-    -->
 
     <div class="hw-zs">
       <div class="hw-zs-task">
         <div class="hw-zs-head">
           <span class="hw-zs-name">Push button</span>
           <span class="hw-zs-sr">93.3%</span>
-          <span class="hw-zs-sub">of 15 trials, best policy</span>
+          <span class="hw-zs-sub">success over 15 trials</span>
         </div>
         <div class="video-strip is-three is-portrait">
           <figure class="strip-item">
@@ -245,7 +229,7 @@
         <div class="hw-zs-head">
           <span class="hw-zs-name">Lift box</span>
           <span class="hw-zs-sr">66.7%</span>
-          <span class="hw-zs-sub">of 15 trials, best policy</span>
+          <span class="hw-zs-sub">success over 15 trials</span>
         </div>
         <div class="video-strip is-three">
           <figure class="strip-item">
@@ -272,7 +256,6 @@
 <section class="section hero" id="refinement">
   <div class="container is-max-desktop sim-container">
     <h2 class="title is-3 has-text-centered">Refinement on Hardware</h2>
-    <!--
     <div class="content has-text-justified">
       <p>
         A policy generated entirely in simulation is deployed zero-shot to a Unitree G1 pressing a physical button,
@@ -281,11 +264,9 @@
         and proposes a code diff to the current policy code.
       </p>
     </div>
-    -->
 
     <div class="hw-headline">
       <div class="hw-headline-stat"><span class="hw-from">20%</span><span class="hw-to-arrow">&rarr;</span><span class="hw-to">90%</span></div>
-      <div class="hw-headline-sub">3 refinement depths &middot; 4 rounds &middot; 55 real rollouts &middot; no retraining, no demonstrations</div>
     </div>
 
     <div class="hw-tree">
@@ -336,12 +317,12 @@
 
       </div>
     </div>
-    <p class="hw-caption">
-      The same policy that reaches 90% in simulation drops to 20% on the real robot. Three refinement depths on
+    <!-- <p class="hw-caption"> -->
+      <!-- The same policy that reaches 90% in simulation drops to 20% on the real robot. Three refinement depths on
       real rollouts recover it. A depth may take several rounds: the first round from <code>depth_0</code> produced a
       candidate that scored <em>worse</em>, so it was not accepted, and the next round proposed a different
-      modification to the same current policy with that failure kept in the history.
-    </p>
+      modification to the same current policy with that failure kept in the history. -->
+    <!-- </p> -->
 
     <!-- Press-margin / press-hold table. Commented out, not deleted.
     <h3 class="title is-5" style="margin-top: 2.5rem;">What the loop actually changed</h3>
@@ -391,11 +372,10 @@
             <span class="hw-pass-arrow">&rarr;</span>
             <span class="hw-pass-node">depth_1_0 <b>10%</b></span>
           </div>
-          <p class="hw-pass-note">The zero-shot policy is the current policy. This round&rsquo;s diff tightens the stance and the press gate together, and the candidate scores below the current policy, so it is not accepted.</p>
         </div>
         <ol class="hw-chain">
           <li class="hw-stage">
-            <details class="hw-stage-fold">
+            <details class="hw-stage-fold" open>
               <summary class="hw-stage-title"><span class="hw-stage-num">1</span>Hardware rollout</summary>
               <div class="hw-stage-body">
                 <p>15 episodes on the Unitree G1, 3 / 15 successful (<b>20%</b>). One rollout <em>R</em> is the only evidence this round reasons over &mdash; no demonstrations, no reward, no retraining.</p>
@@ -490,11 +470,10 @@
             <span class="hw-pass-arrow">&rarr;</span>
             <span class="hw-pass-node">depth_1_1 <b>50%</b></span>
           </div>
-          <p class="hw-pass-note">The previous round&rsquo;s diff, success rate and feedback are kept in the history, so this round proposes a different modification to the <em>same</em> current policy, <code>depth_0</code>. The candidate improves on it, so it is accepted, becomes the current policy, and the history is cleared.</p>
         </div>
         <ol class="hw-chain">
           <li class="hw-stage">
-            <details class="hw-stage-fold">
+            <details class="hw-stage-fold" open>
               <summary class="hw-stage-title"><span class="hw-stage-num">1</span>Hardware rollout</summary>
               <div class="hw-stage-body">
                 <p>10 episodes on the Unitree G1, 1 / 10 successful (<b>10%</b>). One rollout <em>R</em> is the only evidence this round reasons over &mdash; no demonstrations, no reward, no retraining.</p>
@@ -588,11 +567,10 @@
             <span class="hw-pass-arrow">&rarr;</span>
             <span class="hw-pass-node">depth_2_0 <b>60%</b></span>
           </div>
-          <p class="hw-pass-note">A new depth begins from the accepted policy. With navigation solved, the feedback isolates a hardware-only effect: the real arm undershoots its commanded target.</p>
         </div>
         <ol class="hw-chain">
           <li class="hw-stage">
-            <details class="hw-stage-fold">
+            <details class="hw-stage-fold" open>
               <summary class="hw-stage-title"><span class="hw-stage-num">1</span>Hardware rollout</summary>
               <div class="hw-stage-body">
                 <p>10 episodes on the Unitree G1, 5 / 10 successful (<b>50%</b>). One rollout <em>R</em> is the only evidence this round reasons over &mdash; no demonstrations, no reward, no retraining.</p>
@@ -686,11 +664,10 @@
             <span class="hw-pass-arrow">&rarr;</span>
             <span class="hw-pass-node">depth_3_0 <b>90%</b></span>
           </div>
-          <p class="hw-pass-note">The same shortfall persists but smaller, so the compensation is increased rather than redesigned.</p>
         </div>
         <ol class="hw-chain">
           <li class="hw-stage">
-            <details class="hw-stage-fold">
+            <details class="hw-stage-fold" open>
               <summary class="hw-stage-title"><span class="hw-stage-num">1</span>Hardware rollout</summary>
               <div class="hw-stage-body">
                 <p>10 episodes on the Unitree G1, 6 / 10 successful (<b>60%</b>). One rollout <em>R</em> is the only evidence this round reasons over &mdash; no demonstrations, no reward, no retraining.</p>
